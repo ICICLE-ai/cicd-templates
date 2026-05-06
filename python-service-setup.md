@@ -47,17 +47,17 @@ From [icicle-ai/cicd-templates](https://github.com/icicle-ai/cicd-templates), gr
 
 | File in cicd-templates | Save it as | What it's for |
 |---|---|---|
-| `.dockerignore` | `.dockerignore` | Keeps junk and secrets out of your container image |
-| `icicle-service.yaml.example` | `icicle-service.yaml` | Your deployment config (rename, don't keep `.example`) |
-| `entrypoint.sh.example` | `entrypoint.sh` | How your container starts (rename, don't keep `.example`) |
+| `python-uv/template.dockerignore` | `.dockerignore` | Keeps junk and secrets out of your container image |
+| `icicle-service.yaml` | `icicle-service.yaml` | Your deployment config |
+| `python-uv/entrypoint-template.sh` | `entrypoint.sh` | How your container starts |
 
 Quick way to do this:
 
 ```bash
 cd your-service
-curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/.dockerignore -o .dockerignore
-curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/icicle-service.yaml.example -o icicle-service.yaml
-curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/entrypoint.sh.example -o entrypoint.sh
+curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/python-uv/.dockerignore -o .dockerignore
+curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/icicle-service.yaml -o icicle-service.yaml
+curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/python-uv/entrypoint-template.sh -o entrypoint.sh
 chmod +x entrypoint.sh
 ```
 
