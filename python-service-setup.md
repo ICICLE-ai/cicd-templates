@@ -55,9 +55,9 @@ Quick way to do this:
 
 ```bash
 cd your-service
-curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/python-uv/template.dockerignore -o .dockerignore
-curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/icicle-service.yaml -o icicle-service.yaml
-curl -sSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/main/python-uv/entrypoint-template.sh -o entrypoint.sh
+curl -sSL https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/refs/heads/main/python-uv/template.dockerignore -o .dockerignore
+curl -sSL https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/refs/heads/main/icicle-service.yaml -o icicle-service.yaml
+curl -sSL https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/refs/heads/main/python-uv/entrypoint-template.sh -o entrypoint.sh
 chmod +x entrypoint.sh
 ```
 
