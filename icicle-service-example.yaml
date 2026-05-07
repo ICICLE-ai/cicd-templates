@@ -1,0 +1,101 @@
+schema-version: 1
+
+# ──────────────────────────────────────────────────────────────────────
+# Service Identity
+# ──────────────────────────────────────────────────────────────────────
+
+# Kebab-case service name.
+# Becomes the container image name.
+#
+# Example image:
+#   ghcr.io/icicle-python-service:0.1.0
+#
+service-name: icicle-python-service
+
+# Semantic version (semver).
+# Becomes the container image tag.
+#
+# Example:
+#   0.1.0
+#
+service-version: 0.1.0
+
+# Team, lab, grant, or umbrella project name.
+#
+# Example:
+#   icicle-project
+#
+project-name: icicle-project
+
+# Logical service category.
+#
+# Allowed values:
+# - ai
+# - ci
+# - domain
+#
+service-type: ai
+
+# Target Tapis pod to update during deploy.
+#
+# Example:
+#   icicle-python-service-prod
+#
+pod-name: icicle-python-service-prod
+
+# ──────────────────────────────────────────────────────────────────────
+# Runtime Configuration
+# ──────────────────────────────────────────────────────────────────────
+
+# Application runtime.
+#
+# Allowed values:
+# - python
+# - node
+# - bun
+#
+runtime-type: python
+
+# Runtime version in MAJOR.MINOR format.
+# MUST be quoted.
+#
+# Examples:
+#   "3.13"
+#   "22.11"
+#   "1.2"
+#
+runtime-version: "3.13"
+
+# ──────────────────────────────────────────────────────────────────────
+# System Packages
+# ──────────────────────────────────────────────────────────────────────
+
+# Optional build-time APT packages.
+#
+# Leave as [] if your service does not need build dependencies.
+#
+# Common examples:
+# - build-essential → compilers and build tools
+# - gcc             → C compiler
+# - libpq-dev       → PostgreSQL headers
+#
+build-apt-packages:
+  - build-essential
+  - gcc
+  - libpq-dev
+
+# Optional runtime APT packages.
+#
+# Leave as [] if your service does not need runtime system packages.
+#
+# ca-certificates is strongly recommended for HTTPS/TLS support.
+#
+# Common examples:
+# - ca-certificates → trusted TLS certificates
+# - ffmpeg          → video/audio processing
+# - libgl1          → OpenGL support for CV/ML workloads
+#
+runtime-apt-packages:
+  - ca-certificates
+  - ffmpeg
+  - libgl1
