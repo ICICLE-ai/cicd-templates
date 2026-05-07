@@ -1,7 +1,11 @@
 name: Deploy
+
 on:
   push:
     branches: [main]
+
+  # Allow manual runs from the GitHub Actions UI.
+  workflow_dispatch:
 
 jobs:
   deploy:
