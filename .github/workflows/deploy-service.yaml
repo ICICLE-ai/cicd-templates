@@ -17,6 +17,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   TAPIS_BASE_URL: https://icicle.tapis.io
+  TEMPLATES_BASE_URL: https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1
 
 defaults:
   run:
@@ -93,7 +94,7 @@ jobs:
 
           echo "${{ steps.config.outputs.runtime_version }}" | grep -Eq '^[0-9]+\.[0-9]+$' \
             || fail "runtime-version must be MAJOR.MINOR, e.g. 3.13"
-          
+
           [ -n "${{ steps.config.outputs.pod_name }}" ] \
             || fail "pod-name is required"
 
@@ -105,44 +106,24 @@ jobs:
         run: |
           set -eu
 
-          case "${{ steps.config.outputs.runtime_type }}" in
-            bun)
-              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1/bun/Dockerfile" >> "$GITHUB_OUTPUT"
+          RUNTIME="${{ steps.config.outputs.runtime_type }}"
 
-              {
-                echo "build_args<<EOF"
-                echo "BUILD_APT_PACKAGES=${{ steps.config.outputs.build_apt }}"
-                echo "RUNTIME_APT_PACKAGES=${{ steps.config.outputs.runtime_apt }}"
-                echo "BUILD_SHA=${{ github.sha }}"
-                echo "EOF"
-              } >> "$GITHUB_OUTPUT"
-              ;;
+          echo "dockerfile_url=${TEMPLATES_BASE_URL}/${RUNTIME}/Dockerfile" >> "$GITHUB_OUTPUT"
 
-            node)
-              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1/node/Dockerfile" >> "$GITHUB_OUTPUT"
+          {
+            echo "build_args<<EOF"
 
-              {
-                echo "build_args<<EOF"
-                echo "BUILD_APT_PACKAGES=${{ steps.config.outputs.build_apt }}"
-                echo "RUNTIME_APT_PACKAGES=${{ steps.config.outputs.runtime_apt }}"
-                echo "BUILD_SHA=${{ github.sha }}"
-                echo "EOF"
-              } >> "$GITHUB_OUTPUT"
-              ;;
+            # Python is the only runtime that takes a version build arg.
+            # Node and Bun runtime versions are baked into their base images.
+            if [ "$RUNTIME" = "python" ]; then
+              echo "PYTHON_VERSION=${{ steps.config.outputs.runtime_version }}"
+            fi
 
-            python)
-              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1/python/Dockerfile" >> "$GITHUB_OUTPUT"
-
-              {
-                echo "build_args<<EOF"
-                echo "PYTHON_VERSION=${{ steps.config.outputs.runtime_version }}"
-                echo "BUILD_APT_PACKAGES=${{ steps.config.outputs.build_apt }}"
-                echo "RUNTIME_APT_PACKAGES=${{ steps.config.outputs.runtime_apt }}"
-                echo "BUILD_SHA=${{ github.sha }}"
-                echo "EOF"
-              } >> "$GITHUB_OUTPUT"
-              ;;
-          esac
+            echo "BUILD_APT_PACKAGES=${{ steps.config.outputs.build_apt }}"
+            echo "RUNTIME_APT_PACKAGES=${{ steps.config.outputs.runtime_apt }}"
+            echo "BUILD_SHA=${{ github.sha }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Fetch official Dockerfile
         run: |
