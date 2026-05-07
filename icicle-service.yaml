@@ -1,15 +1,15 @@
 schema-version: 1
 
 # Identity
-service-name: # kebab-case, becomes your docker image name ex. icicle-python-service
-service-version: # semver, becomes your docker image tag ex. 0.1.0
-project-name: # your team / grant / umbrella project ex. icicle-project
-service-type: # one of: ai | ci | domain
-pod-name: # Tapis pod to deploy to
+service-name:
+service-version:
+project-name:
+service-type:
+pod-name:
 
 # Runtime
-runtime-type: # python, node, bun
-runtime-version: # MAJOR.MINOR — MUST be quoted
+runtime-type:
+runtime-version:
 
 # System packages (leave empty lists if you don't need any)
 build-apt-packages: []
