@@ -1,40 +1,23 @@
 name: Build and Deploy ICICLE Service
 
-# Reusable workflow invoked from service repos.
-#
-# Example:
-#
-# jobs:
-#   deploy:
-#     uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yml@v1
-#     secrets:
-#       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
-#       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-#       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-
 on:
   workflow_call:
     secrets:
-      # Tapis auth token used to trigger pod deploys.
       TAPIS_TOKEN:
         required: true
-
-      # Container registry credentials.
       REGISTRY_USERNAME:
         required: true
-
       REGISTRY_PASSWORD:
         required: true
 
-# Shared environment variables available to all steps.
-env:
-  # GitHub Container Registry.
-  REGISTRY: ghcr.io
+permissions:
+  contents: read
+  packages: write
 
-  # Base URL for Tapis pod API.
+env:
+  REGISTRY: ghcr.io
   TAPIS_BASE_URL: https://icicle.tapis.io
 
-# Force all `run:` steps to use bash.
 defaults:
   run:
     shell: bash
@@ -43,26 +26,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: true
+
     steps:
-      # ──────────────────────────────────────────────────────────────────
-      # Checkout repository contents so the workflow can access:
-      #
-      # - icicle-service.yaml
-      # - application source code
-      # - dependency manifests
-      # ──────────────────────────────────────────────────────────────────
       - name: Checkout service repo
         uses: actions/checkout@v4
 
-      # ──────────────────────────────────────────────────────────────────
-      # Parse icicle-service.yaml and expose values as step outputs.
-      #
-      # Example:
-      #
-      # service-name: my-service
-      # runtime: python
-      # runtime-version: 3.13
-      # ──────────────────────────────────────────────────────────────────
       - name: Parse icicle-service.yaml
         id: config
         run: |
@@ -70,37 +41,24 @@ jobs:
 
           CONFIG_FILE=icicle-service.yaml
 
-          # Ensure config file exists at repo root.
           if [ ! -f "$CONFIG_FILE" ]; then
             echo "::error file=$CONFIG_FILE::icicle-service.yaml is missing from the service repo root"
             exit 1
           fi
 
-          # Parse YAML values with yq and save as GitHub step outputs.
-          #
-          # These become accessible later as:
-          #
-          # steps.config.outputs.service_name
-          #
           {
-            echo "service_name=$(yq -r '.["service-name"]' $CONFIG_FILE)"
-            echo "service_version=$(yq -r '.["service-version"]' $CONFIG_FILE)"
-            echo "project_name=$(yq -r '.["project-name"]' $CONFIG_FILE)"
-            echo "service_type=$(yq -r '.["service-type"]' $CONFIG_FILE)"
-            echo "pod_name=$(yq -r '.["pod-name"]' $CONFIG_FILE)"
-            echo "runtime_type=$(yq -r '.["runtime"]' $CONFIG_FILE)"
-            echo "runtime_version=$(yq -r '.["runtime-version"]' $CONFIG_FILE)"
-            echo "schema_version=$(yq -r '.["schema-version"]' $CONFIG_FILE)"
-            echo "build_apt=$(yq -r '.["build-apt-packages"] // [] | join(" ")' $CONFIG_FILE)"
-            echo "runtime_apt=$(yq -r '.["runtime-apt-packages"] // [] | join(" ")' $CONFIG_FILE)"
+            echo "service_name=$(yq -r '.["service-name"]' "$CONFIG_FILE")"
+            echo "service_version=$(yq -r '.["service-version"]' "$CONFIG_FILE")"
+            echo "project_name=$(yq -r '.["project-name"]' "$CONFIG_FILE")"
+            echo "service_type=$(yq -r '.["service-type"]' "$CONFIG_FILE")"
+            echo "pod_name=$(yq -r '.["pod-name"]' "$CONFIG_FILE")"
+            echo "runtime_type=$(yq -r '.["runtime-type"]' "$CONFIG_FILE")"
+            echo "runtime_version=$(yq -r '.["runtime-version"]' "$CONFIG_FILE")"
+            echo "schema_version=$(yq -r '.["schema-version"]' "$CONFIG_FILE")"
+            echo "build_apt=$(yq -r '.["build-apt-packages"] // [] | join(" ")' "$CONFIG_FILE")"
+            echo "runtime_apt=$(yq -r '.["runtime-apt-packages"] // [] | join(" ")' "$CONFIG_FILE")"
           } >> "$GITHUB_OUTPUT"
 
-      # ──────────────────────────────────────────────────────────────────
-      # Validate configuration before building/deploying.
-      #
-      # Fail early with readable error messages instead of allowing
-      # confusing Docker or deploy failures later in the workflow.
-      # ──────────────────────────────────────────────────────────────────
       - name: Validate icicle-service.yaml
         run: |
           set -eu
@@ -110,31 +68,15 @@ jobs:
             exit 1
           }
 
-          # Current supported schema version.
           [ "${{ steps.config.outputs.schema_version }}" = "1" ] \
             || fail "schema-version must be 1"
 
-          # Enforce lowercase kebab-case service names.
-          #
-          # Valid:
-          #   my-service
-          #
-          # Invalid:
-          #   MyService
-          #   my_service
-          #
           echo "${{ steps.config.outputs.service_name }}" | grep -Eq '^[a-z][a-z0-9-]*$' \
             || fail "service-name must be kebab-case: lowercase letters, digits, and hyphens"
 
-          # Enforce semver version format.
-          #
-          # Valid:
-          #   1.0.0
-          #
           echo "${{ steps.config.outputs.service_version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
             || fail "service-version must be semver, e.g. 0.1.0"
 
-          # Supported logical service categories.
           case "${{ steps.config.outputs.service_type }}" in
             ai|ci|domain) ;;
             *)
@@ -142,49 +84,30 @@ jobs:
               ;;
           esac
 
-          # Supported runtimes.
           case "${{ steps.config.outputs.runtime_type }}" in
             python|node|bun) ;;
             *)
-              fail "runtime must be one of: python, node, bun"
+              fail "runtime-type must be one of: python, node, bun"
               ;;
           esac
 
-          # Runtime versions use MAJOR.MINOR format.
-          #
-          # Examples:
-          #   3.13
-          #   22.11
-          #
           echo "${{ steps.config.outputs.runtime_version }}" | grep -Eq '^[0-9]+\.[0-9]+$' \
             || fail "runtime-version must be MAJOR.MINOR, e.g. 3.13"
-
-          # Required deploy metadata.
+          
           [ -n "${{ steps.config.outputs.pod_name }}" ] \
             || fail "pod-name is required"
 
           [ -n "${{ steps.config.outputs.project_name }}" ] \
             || fail "project-name is required"
 
-      # ──────────────────────────────────────────────────────────────────
-      # Configure runtime-specific Dockerfile URL and Docker build args.
-      #
-      # Why outputs?
-      #
-      # Each GitHub Actions step runs in a separate shell process.
-      # Outputs allow data sharing between steps.
-      #
-      # The build_args output is intentionally multi-line because
-      # docker/build-push-action expects newline-separated args.
-      # ──────────────────────────────────────────────────────────────────
-      - name: Set up Runtime Args
-        id: runtime
+      - name: Set up Buildtime Args
+        id: buildtime
         run: |
           set -eu
 
           case "${{ steps.config.outputs.runtime_type }}" in
             bun)
-              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/refs/heads/main/bun/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1/bun/Dockerfile" >> "$GITHUB_OUTPUT"
 
               {
                 echo "build_args<<EOF"
@@ -196,7 +119,7 @@ jobs:
               ;;
 
             node)
-              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/refs/heads/main/node/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1/node/Dockerfile" >> "$GITHUB_OUTPUT"
 
               {
                 echo "build_args<<EOF"
@@ -208,7 +131,7 @@ jobs:
               ;;
 
             python)
-              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/refs/heads/main/python/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "dockerfile_url=https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1/python/Dockerfile" >> "$GITHUB_OUTPUT"
 
               {
                 echo "build_args<<EOF"
@@ -219,43 +142,19 @@ jobs:
                 echo "EOF"
               } >> "$GITHUB_OUTPUT"
               ;;
-
-            *)
-              echo "::error file=icicle-service.yaml,title=Invalid runtime::got '${{ steps.config.outputs.runtime_type }}' but expected one of: python, node, bun"
-              exit 1
-              ;;
           esac
 
-      # ──────────────────────────────────────────────────────────────────
-      # Download the official runtime-specific Dockerfile template.
-      #
-      # This intentionally overrides any local Dockerfile to ensure:
-      #
-      # - standardized builds
-      # - reproducible runtime environments
-      # - centralized CI/CD control
-      # ──────────────────────────────────────────────────────────────────
       - name: Fetch official Dockerfile
         run: |
           set -eu
 
           curl -fsSL \
-            "${{ steps.runtime.outputs.dockerfile_url }}" \
+            "${{ steps.buildtime.outputs.dockerfile_url }}" \
             -o Dockerfile
 
-      # ──────────────────────────────────────────────────────────────────
-      # Enable Docker Buildx:
-      #
-      # - layer caching
-      # - multi-platform builds
-      # - improved build performance
-      # ──────────────────────────────────────────────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ──────────────────────────────────────────────────────────────────
-      # Authenticate against GitHub Container Registry.
-      # ──────────────────────────────────────────────────────────────────
       - name: Log in to container registry
         uses: docker/login-action@v3
         with:
@@ -263,25 +162,13 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      # ──────────────────────────────────────────────────────────────────
-      # Compute final container image tag.
-      #
-      # Example:
-      #
-      # ghcr.io/my-service:1.2.0
-      # ──────────────────────────────────────────────────────────────────
       - name: Compute image tag
         id: image
         run: |
           set -eu
 
-          echo "tag=${REGISTRY}/${{ steps.config.outputs.service_name }}:${{ steps.config.outputs.service_version }}" >> "$GITHUB_OUTPUT"
+          echo "tag=${REGISTRY}/${{ github.repository_owner }}/${{ steps.config.outputs.service_name }}:${{ steps.config.outputs.service_version }}" >> "$GITHUB_OUTPUT"
 
-      # ──────────────────────────────────────────────────────────────────
-      # Build and push the container image.
-      #
-      # Docker layer caching is enabled using GitHub Actions cache.
-      # ──────────────────────────────────────────────────────────────────
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -289,19 +176,10 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ${{ steps.image.outputs.tag }}
-
-          # Runtime-specific build args generated earlier.
-          build-args: ${{ steps.runtime.outputs.build_args }}
-
-          # GitHub Actions cache backend.
+          build-args: ${{ steps.buildtime.outputs.build_args }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ──────────────────────────────────────────────────────────────────
-      # Trigger rolling deploy through Tapis.
-      #
-      # This updates the pod image reference to the newly built image.
-      # ──────────────────────────────────────────────────────────────────
       - name: Trigger Tapis deploy
         run: |
           set -eu
@@ -314,9 +192,6 @@ jobs:
 
           echo "Tapis response: $response"
 
-      # ──────────────────────────────────────────────────────────────────
-      # Final deploy summary shown in Actions logs.
-      # ──────────────────────────────────────────────────────────────────
       - name: Report deploy submitted
         run: |
           cat <<EOF
