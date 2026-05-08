@@ -168,8 +168,7 @@ jobs:
           response=$(curl -fsS -X PATCH \
             -H "X-Tapis-Token: ${{ secrets.TAPIS_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"image\": \"${{ steps.image.outputs.tag }}\"}" \
-            "${TAPIS_BASE_URL}/v3/pods/${{ steps.config.outputs.pod_name }}")
+            "${TAPIS_BASE_URL}/v3/pods/${{ steps.config.outputs.pod_name }}/restart")
 
           echo "Tapis response: $response"
 
