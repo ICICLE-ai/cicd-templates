@@ -148,7 +148,8 @@ jobs:
         run: |
           set -eu
 
-          echo "tag=${REGISTRY}/${{ github.repository_owner }}/${{ steps.config.outputs.service_name }}:${{ steps.config.outputs.service_version }}" >> "$GITHUB_OUTPUT"
+          OWNER_LC="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "tag=${REGISTRY}/${OWNER_LC}/${{ steps.config.outputs.service_name }}:${{ steps.config.outputs.service_version }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v5
