@@ -16,7 +16,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  TAPIS_BASE_URL: https://icicle.tapis.io
+  TAPIS_BASE_URL: https://icicleai.tapis.io
   TEMPLATES_BASE_URL: https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1
 
 defaults:
