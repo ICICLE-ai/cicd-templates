@@ -165,7 +165,7 @@ jobs:
       - name: Trigger Tapis deploy
         run: |
           set -eu
-          http_code=$(curl -sS -X PATCH \
+          http_code=$(curl -sS -X GET \
             -H "X-Tapis-Token: ${{ secrets.TAPIS_TOKEN }}" \
             -H "Content-Type: application/json" \
             -o response.json -w '%{http_code}' \
