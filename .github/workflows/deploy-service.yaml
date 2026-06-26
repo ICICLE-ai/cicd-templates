@@ -165,13 +165,14 @@ jobs:
       - name: Trigger Tapis deploy
         run: |
           set -eu
-
-          response=$(curl -fsS -X PATCH \
+          http_code=$(curl -sS -X PATCH \
             -H "X-Tapis-Token: ${{ secrets.TAPIS_TOKEN }}" \
             -H "Content-Type: application/json" \
+            -o response.json -w '%{http_code}' \
             "${TAPIS_BASE_URL}/v3/pods/${{ steps.config.outputs.pod_name }}/restart")
-
-          echo "Tapis response: $response"
+          echo "HTTP $http_code"
+          cat response.json  
+          [ "$http_code" -lt 400 ] || exit 1
 
       - name: Report deploy submitted
         run: |
