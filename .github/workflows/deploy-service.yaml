@@ -86,9 +86,9 @@ jobs:
           esac
 
           case "${{ steps.config.outputs.runtime_type }}" in
-            python|node|bun) ;;
+            python|node-backend|node-frontend) ;;
             *)
-              fail "runtime-type must be one of: python, node, bun"
+              fail "runtime-type must be one of: python, node-backend, node-frontend"
               ;;
           esac
 
@@ -113,11 +113,16 @@ jobs:
           {
             echo "build_args<<EOF"
 
-            # Python is the only runtime that takes a version build arg.
-            # Node and Bun runtime versions are baked into their base images.
-            if [ "$RUNTIME" = "python" ]; then
-              echo "PYTHON_VERSION=${{ steps.config.outputs.runtime_version }}"
-            fi
+            # Every runtime takes its version from icicle-service.yaml as a
+            # build arg. Each Dockerfile installs its interpreter/toolchain from
+            # a pinned upstream source rather than a version-tagged base image,
+            # so the version must be passed in. (node-frontend's version is the
+            # Node used to BUILD the frontend; nothing Node runs in its image.)
+            case "$RUNTIME" in
+              python)        echo "PYTHON_VERSION=${{ steps.config.outputs.runtime_version }}" ;;
+              node-backend)  echo "NODE_VERSION=${{ steps.config.outputs.runtime_version }}" ;;
+              node-frontend) echo "NODE_VERSION=${{ steps.config.outputs.runtime_version }}" ;;
+            esac
 
             echo "BUILD_APT_PACKAGES=${{ steps.config.outputs.build_apt }}"
             echo "RUNTIME_APT_PACKAGES=${{ steps.config.outputs.runtime_apt }}"
@@ -132,6 +137,16 @@ jobs:
           curl -fsSL \
             "${{ steps.buildtime.outputs.dockerfile_url }}" \
             -o Dockerfile
+
+          # node-frontend additionally ships an nginx config that its Dockerfile
+          # COPYs from the build context. Fetch it next to the Dockerfile.
+          # (Overwrites a root-level nginx.conf in the service repo, if any —
+          # documented in node-frontend/service-setup.md.)
+          if [ "${{ steps.config.outputs.runtime_type }}" = "node-frontend" ]; then
+            curl -fsSL \
+              "${TEMPLATES_BASE_URL}/node-frontend/nginx.conf" \
+              -o nginx.conf
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

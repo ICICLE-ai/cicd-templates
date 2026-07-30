@@ -1,0 +1,73 @@
+# ──────────────────────────────────────────────────────────────────────────
+# ICICLE .dockerignore template (Node frontend)
+# Keeps build context small and prevents secrets / junk from entering images.
+# ──────────────────────────────────────────────────────────────────────────
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Node artifacts — node_modules is ALWAYS reinstalled in the container.
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+.npm/
+.yarn/
+
+# Build output — regenerated inside the image. Never ship a host build.
+dist/
+build/
+.next/
+.nuxt/
+.svelte-kit/
+.vite/
+.turbo/
+coverage/
+
+# Environments & secrets — NEVER bake these into images.
+# NOTE: for SPAs, any value in a build-time env (VITE_*, VUE_APP_*) is compiled
+# into the public JS bundle and is readable by anyone. Never put a real secret
+# in one. See node-frontend/service-setup.md.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+.secrets/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# CI / local tooling
+.github/
+*.log
+logs/
+
+# Docker itself
+Dockerfile
+.dockerignore
+
+# Docs
+docs/
+*.md
+!README.md
+
+# Tests (not needed to produce the build)
+**/*.test.ts
+**/*.test.tsx
+**/*.test.js
+**/*.spec.ts
+**/*.spec.js
+__tests__/
+e2e/
+playwright-report/

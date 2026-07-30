@@ -50,19 +50,22 @@ pod-name: icicle-python-service-prod
 # Application runtime.
 #
 # Allowed values:
-# - python
-# - node
-# - bun
+# - python          backend Python service (uv)
+# - node-backend    backend Node service (Fastify/Express, long-lived process)
+# - node-frontend   React/Vue/Svelte SPA — Node builds it, nginx serves it,
+#                   no Node process runs in production
 #
 runtime-type: python
 
 # Runtime version in MAJOR.MINOR format.
-# MUST be quoted.
+# MUST be quoted. Resolved to the newest patch on that line at build time.
+#
+# This is the version the build uses to install the interpreter/toolchain.
+# For node-frontend it is the Node version used to BUILD the frontend.
 #
 # Examples:
-#   "3.13"
-#   "22.11"
-#   "1.2"
+#   "3.13"    (python)
+#   "22.11"   (node-backend, node-frontend)
 #
 runtime-version: "3.13"
 
