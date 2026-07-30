@@ -2,7 +2,9 @@
 
 > Step-by-step instructions for onboarding a new Python service to ICICLE's CI/CD pipeline.
 
-This guide walks you through everything you need in your service repo to get it building and deploying automatically. Plan on about 15 minutes end-to-end.
+This guide walks you through everything you need in your service repo to get it building and deploying automatically.
+
+Not a Python service? See [`node-backend/service-setup.md`](../node-backend/service-setup.md) for Node API servers, or [`node-frontend/service-setup.md`](../node-frontend/service-setup.md) for React/Vue/Svelte SPAs.
 
 ---
 
@@ -10,10 +12,11 @@ This guide walks you through everything you need in your service repo to get it 
 
 You'll need:
 
-- A git repo for your service (empty is fine), under the `icicle-ai` GitHub org.
+- A **public** git repo for your service (empty is fine), under the `icicle-ai` GitHub org. It needs to be public — the shared deploy credentials live at the org level, and GitHub only makes those available to public repos.
 - [`uv`](https://docs.astral.sh/uv/) installed locally.
 - Docker installed locally (for optional local testing).
-- Your service's target Tapis pod name. Ask in `#icicle-service-support` if you don't have one yet.
+- **Your service's target Tapis pod.** The pipeline restarts an existing pod; it does not create one. Ask in `#icicle-service-support` if you don't have one yet.
+- **No secrets to configure.** `TAPIS_TOKEN`, `REGISTRY_USERNAME`, and `REGISTRY_PASSWORD` are provisioned once at the org level, which is why the workflow can reference secrets you never created. Don't add your own copies at the repo level.
 
 ---
 
@@ -70,6 +73,8 @@ curl -fsSL https://raw.githubusercontent.com/icicle-ai/cicd-templates/v1/deploy.
 chmod +x entrypoint.sh
 ```
 
+The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. It pins the reusable workflow with a `@ref`; check that the pin matches the template version you bootstrapped from above, and see [Versioning](../README.md#versioning) for how tags work.
+
 For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/v1/icicle-service-example.yaml).
 
 ---
@@ -91,7 +96,7 @@ service-type: ai                           # one of: ai | ci | domain
 pod-name: iciclepythonservice              # Tapis pod to deploy to
 
 # Runtime
-runtime-type: python                       # one of: python | node | bun
+runtime-type: python                       # one of: python | node-backend | node-frontend
 runtime-version: "3.13"                    # MAJOR.MINOR — MUST be quoted
 
 # System packages (leave empty lists if you don't need any)
@@ -183,7 +188,7 @@ dependencies = [
 - `[project].version` ↔ `icicle-service.yaml` `service-version`
 - `[project].requires-python` ↔ `icicle-service.yaml` `runtime-version` (the runtime-version must fall inside the requires-python range)
 
-CI's validation step will yell at you if these drift apart.
+**Nothing enforces this.** CI validates `icicle-service.yaml` on its own — it never opens `pyproject.toml`, so drift between the two builds green and then lies to you at runtime: `/health` reports the `pyproject.toml` version while the image is tagged with the `icicle-service.yaml` one. Keeping them in sync is on you.
 
 ---
 
@@ -276,8 +281,8 @@ Put all your code under `src/<your_package_name>/`. The package name should matc
 | `icicle-service.yaml` service-name | Python package name |
 |---|---|
 | `icicle-python-service` | `icicle_python_service` |
-| `ct-controller` | `ct_controller` |
-| `mlflow-proxy` | `mlflow_proxy` |
+| `my-data-service` | `my_data_service` |
+| `my-api-proxy` | `my_api_proxy` |
 
 ### Minimum viable structure
 
@@ -311,13 +316,13 @@ src/
     ├── api/
     │   ├── __init__.py
     │   ├── health.py            ← health endpoints
-    │   └── detection.py         ← your service's actual endpoints
+    │   └── tasks.py             ← your service's actual endpoints
     ├── models/
     │   ├── __init__.py
     │   └── schemas.py           ← Pydantic request/response models
     └── services/
         ├── __init__.py
-        └── detector.py          ← your business logic
+        └── task_runner.py       ← your business logic
 ```
 
 Every directory under `src/icicle_python_service/` needs its own `__init__.py`. Imports then look like:
@@ -325,12 +330,12 @@ Every directory under `src/icicle_python_service/` needs its own `__init__.py`. 
 ```python
 # src/icicle_python_service/main.py
 from fastapi import FastAPI
-from icicle_python_service.api import health, detection
+from icicle_python_service.api import health, tasks
 from icicle_python_service.config import settings
 
 app = FastAPI(title=settings.service_name)
 app.include_router(health.router)
-app.include_router(detection.router)
+app.include_router(tasks.router)
 ```
 
 ### Verify it actually works before pushing
@@ -377,7 +382,7 @@ The deploy pipeline is fire-and-forget — it tells Tapis to roll out your image
   "status": "ok",
   "service": "icicle-python-service",
   "version": "0.1.5",
-  "build_sha": "8f3c2a1",
+  "build_sha": "8f3c2a1d4e5b6c7a8f9e0d1c2b3a4f5e6d7c8b9a",
   "timestamp": "2026-04-23T18:30:00Z"
 }
 ```
@@ -387,7 +392,7 @@ Five fields, all required:
 - **`status`** — `"ok"` when the service is healthy, `"degraded"` or `"error"` if something's wrong. Keep this binary for the top-level — use the details below for nuance.
 - **`service`** — your service name, matching `icicle-service.yaml`. Helps when multiple services reply to the same hostname via a reverse proxy.
 - **`version`** — the running service's version. This is how we verify the right code got deployed. Read it from your package metadata, not a hardcoded string (see below).
-- **`build_sha`** — the short git SHA of the commit CI built from. Read it from an environment variable the container sets at build time.
+- **`build_sha`** — the git SHA of the commit CI built from. Read it from the `BUILD_SHA` environment variable the container sets at build time. CI passes the **full 40-character** SHA (`github.sha`), not the 7-character short form.
 - **`timestamp`** — ISO 8601 UTC. Confirms the service is actually responding now and not returning a cached response.
 
 ### Template implementation
@@ -449,7 +454,7 @@ curl https://<your-service-url>/health
 Confirm:
 
 - `version` matches the `service-version` you just deployed in `icicle-service.yaml`.
-- `build_sha` matches the git commit you pushed (short SHA — first 7 characters of the full SHA).
+- `build_sha` matches the commit you pushed. CI passes the full 40-character SHA, so compare it against `git rev-parse HEAD` rather than the shortened SHA the GitHub UI displays.
 
 If either is stale, your pod didn't pick up the new image — wait 30–60 seconds and retry. If it stays stale, ping `#icicle-service-support`.
 
@@ -563,7 +568,7 @@ curl http://localhost:8000/health
 
 > ### ⚠️ DO NOT MODIFY the Dockerfile
 >
-> The Dockerfile is owned by the ICICLE platform team and is the source of truth for how your service gets built. CI will **always overwrite** any local changes at build time — editing it locally will not affect your deploys, and committing a modified version to your repo will not either.
+> The Dockerfile is maintained by `#icicle-service-leads` and is the source of truth for how your service gets built. CI will **always overwrite** any local changes at build time — editing it locally will not affect your deploys, and committing a modified version to your repo will not either.
 >
 > If the official Dockerfile doesn't meet your needs, see [When you need something the template doesn't support](#when-you-need-something-the-template-doesnt-support) at the end of this doc.
 >
@@ -574,12 +579,14 @@ curl http://localhost:8000/health
 ## Step 10 — Commit and push
 
 ```bash
-git add .github/ icicle-service.yaml pyproject.toml uv.lock entrypoint.sh .dockerignore src/
+git add -A
 git commit -m "initial ICICLE service setup"
 git push
 ```
 
-CI will pick it up automatically. Open the **Actions** tab in your service repo on GitHub to watch the deploy run. If something's wrong with your `icicle-service.yaml` or `pyproject.toml`, it'll fail at the validation step with a readable error message telling you what to fix.
+Use `git add -A` rather than listing paths by hand — it's easy to forget a config file, and the failure mode is a CI build that breaks with no local symptom. Make sure your `.gitignore` excludes `.venv/` and `__pycache__/` first.
+
+CI will pick it up automatically. Open the **Actions** tab in your service repo on GitHub to watch the deploy run. If something's wrong with your `icicle-service.yaml`, it'll fail at the validation step with a readable error message telling you what to fix. `pyproject.toml` is not validated — errors there surface later, as a build failure or a wrong `/health` response.
 
 ---
 
@@ -616,7 +623,7 @@ Bookmark these for your service. The pipeline is fire-and-forget; it doesn't wai
 Run `uv lock` and commit the result.
 
 **Validation fails with "runtime-version must be MAJOR.MINOR"**
-You forgot to quote it in `icicle-service.yaml`. Change `runtime-version: 3.13` to `runtime-version: "3.13"` (unquoted, YAML parses it as a float and strips the trailing zero).
+You forgot to quote it in `icicle-service.yaml`. Change `runtime-version: 3.13` to `runtime-version: "3.13"`. Unquoted, YAML parses the value as a float, which fails the `MAJOR.MINOR` check — and for a version like `3.10` it also silently drops the trailing zero, leaving you on `3.1`.
 
 **Validation fails with "service-name must be kebab-case"**
 Service names allow only lowercase letters, digits, and hyphens. `MyService`, `my_service`, and `my.service` are all invalid. Use `my-service`.

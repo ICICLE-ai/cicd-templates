@@ -7,8 +7,8 @@ This repo is the **source of truth** for how ICICLE services get built and deplo
 If you're a researcher onboarding a new service, jump to the per-runtime setup guide:
 
 - **Python** → [`python/service-setup.md`](./python/service-setup.md)
-- **Node** → coming soon
-- **Bun** → coming soon
+- **Node backend** (API servers) → [`node-backend/service-setup.md`](./node-backend/service-setup.md)
+- **Node frontend** (React/Vue/Svelte SPAs, built by Node and served by nginx) → [`node-frontend/service-setup.md`](./node-frontend/service-setup.md)
 
 ---
 
@@ -21,8 +21,14 @@ If you're a researcher onboarding a new service, jump to the per-runtime setup g
 | `python/.dockerignore` | Starter `.dockerignore` for Python services. Researchers copy this once. | Researchers |
 | `python/entrypoint.sh` | Starter entrypoint script for Python services. Researchers copy and customize. | Researchers |
 | `python/service-setup.md` | Step-by-step onboarding guide for Python service authors. | Researchers |
-| `node/Dockerfile` | Official Dockerfile for Node services. *(coming soon)* | CI |
-| `bun/Dockerfile` | Official Dockerfile for Bun services. *(coming soon)* | CI |
+| `node-backend/Dockerfile` | Official Dockerfile for backend Node services. Fetched at build time. | CI |
+| `node-backend/.dockerignore` | Starter `.dockerignore` for Node services. Researchers copy this once. | Researchers |
+| `node-backend/entrypoint.sh` | Starter entrypoint script for Node services. Researchers copy and customize. | Researchers |
+| `node-backend/service-setup.md` | Onboarding guide for backend Node service authors. | Researchers |
+| `node-frontend/Dockerfile` | Official Dockerfile for static frontends (Node builds, nginx serves). Fetched at build time. | CI |
+| `node-frontend/nginx.conf` | Official nginx config: SPA fallback, cache headers, `/healthcheck`. Fetched at build time. | CI |
+| `node-frontend/.dockerignore` | Starter `.dockerignore` for frontend services. Researchers copy this once. | Researchers |
+| `node-frontend/service-setup.md` | Onboarding guide for frontend authors. | Researchers |
 | `icicle-service.yaml` | Empty starter config. Researchers copy and fill in. | Researchers |
 | `icicle-service-example.yaml` | Annotated example showing every field with comments. | Researchers (reference) |
 | `deploy.yaml` | Example workflow for a service repo. Researchers copy this into their `.github/workflows/`. | Researchers |
@@ -37,7 +43,7 @@ The flow, from researcher push to deployed pod:
 ┌──────────────────────────────────────────────────────────┐
 │ Researcher's service repo                                │
 │   icicle-service.yaml      ← service config              │
-│   pyproject.toml / etc.    ← deps                        │
+│   deps manifest            ← pyproject.toml, package.json │
 │   src/                     ← code                        │
 │   .github/workflows/       ← 5-line workflow that calls  │
 │     deploy.yaml            │  the reusable workflow here │
@@ -105,12 +111,13 @@ In rough order of impact:
 
 To add support for a new runtime (Go, Rust, etc.):
 
-1. Create `<runtime>/Dockerfile` following the patterns in `python/Dockerfile`.
-2. Create `<runtime>/.dockerignore` and `<runtime>/entrypoint.sh` starters.
-3. Add a case branch in the `Set up Buildtime Args` step in `.github/workflows/deploy-service.yaml`.
-4. Add the runtime to the validation allow-list in the same workflow.
-5. Write `<runtime>/service-setup.md` for researchers.
-6. Tag a new version.
+1. Create `<runtime>/Dockerfile` following the patterns in `python/Dockerfile`. It should accept `<RUNTIME>_VERSION`, `BUILD_APT_PACKAGES`, `RUNTIME_APT_PACKAGES`, and `BUILD_SHA` build args, and run as the non-root `icicle` user (uid/gid 999).
+2. Create `<runtime>/.dockerignore` and, if the runtime runs a process, `<runtime>/entrypoint.sh`. (Static/served runtimes like `node-frontend` have no entrypoint — the server is the image's process.)
+3. Add a `<runtime>)` branch to the version `case` in the `Set up Buildtime Args` step, emitting the build arg your Dockerfile expects. **Don't skip this** — a Dockerfile that reads a `*_VERSION` arg the workflow never passes falls back to its `ARG` default and silently builds the wrong version.
+4. Add the runtime to the validation allow-list in the `Validate` step.
+5. If the runtime's Dockerfile `COPY`s any file *other* than what the service repo provides (e.g. `node-frontend` ships an `nginx.conf`), fetch that file into the build context in the `Fetch official Dockerfile` step — the build context is the service repo, so template-owned files must be pulled in explicitly.
+6. Write `<runtime>/service-setup.md` for researchers.
+7. Tag a new version.
 
 ---
 
