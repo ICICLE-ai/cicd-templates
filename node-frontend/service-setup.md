@@ -4,7 +4,7 @@ Use `node-frontend` for an app that builds to static HTML, CSS, and JavaScript. 
 
 ## Prepare the app
 
-Follow the shared [quick start](../README.md#quick-start), then set `runtime-type: node-frontend` and a quoted Node `runtime-version`, such as `"22.11"`, in `icicle-service.yaml`. See [configuration](../README.md#configuration) for the schema and naming rules.
+Follow the shared [quick start](../docs/quick-start.md#quick-start), then set `runtime-type: node-frontend` and a quoted Node `runtime-version`, such as `"22.11"`, in `icicle-service.yaml`. See [configuration](../docs/configuration.md#configuration) for the schema and naming rules.
 
 Your repository needs:
 
@@ -53,7 +53,7 @@ Unset or empty `BACKEND_URL` preserves the previous static/SPA behavior, includi
 
 ## Configure the deployed frontend
 
-The [deployment workflow](../README.md#deployment) manages the existing pod's image. Runtime environment and networking remain platform-managed. Merge this setting into the pod's `environment_variables`, retain its other variables, and restart:
+The [deployment workflow](../docs/deployment.md#deployment) manages the existing pod's image. Runtime environment and networking remain platform-managed. Merge this setting into the pod's `environment_variables`, retain its other variables, and restart:
 
 ```json
 {
@@ -73,7 +73,7 @@ Adopting these templates requires one image build. After adoption, changing or r
 
 ## Test the image locally
 
-From your application directory, fetch all build inputs from the same [template release](../README.md#versioning) used by your workflow:
+From your application directory, fetch all build inputs from the same [template release](../docs/versioning.md#versioning) used by your workflow:
 
 ```bash
 TEMPLATE_REF=v2.0.0
@@ -119,4 +119,4 @@ Nginx serves `/app/site` on port `8000` as the unprivileged `icicle` user. Start
 
 The site is hosted at `/`. Hosting under a prefix requires coordinated ingress rewriting and bundler/router base settings; API requests still use origin-root `/api/...`.
 
-If API calls return HTML, check `BACKEND_URL` and the startup command. For startup failures or HTTP 502, check DNS, network access, port, and HTTPS certificate trust. For rollout failures, use the [shared deployment guidance](../README.md#deployment).
+If API calls return HTML, check `BACKEND_URL` and the startup command. For startup failures or HTTP 502, check DNS, network access, port, and HTTPS certificate trust. For rollout failures, use the [shared deployment guidance](../docs/deployment.md#deployment).

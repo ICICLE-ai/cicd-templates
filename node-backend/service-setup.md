@@ -2,7 +2,7 @@
 
 Use `runtime-type: node-backend` for a Node API or server-rendered application. For a static site, use the [frontend guide](../node-frontend/service-setup.md).
 
-Start with the [shared quick start](../README.md#quick-start), then prepare the files below. Your framework, source layout, and CommonJS or ESM choice can stay as they are.
+Start with the [shared quick start](../docs/quick-start.md#quick-start), then prepare the files below. Your framework, source layout, and CommonJS or ESM choice can stay as they are.
 
 ## Required files
 
@@ -86,4 +86,4 @@ curl --fail http://localhost:8000/health
 
 Also exercise an application route and stop the container to check shutdown. The downloaded Dockerfile is for local testing; CI fetches the authoritative copy. Keep shared template changes in this repository.
 
-See [configuration](../README.md#configuration) for schema and naming rules, [deployment](../README.md#deployment) for pod/networking prerequisites, and [versioning](../README.md#versioning) for upgrades.
+See [configuration](../docs/configuration.md#configuration) for schema and naming rules, [deployment](../docs/deployment.md#deployment) for pod/networking prerequisites, and [versioning](../docs/versioning.md#versioning) for upgrades.

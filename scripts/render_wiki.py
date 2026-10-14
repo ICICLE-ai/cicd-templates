@@ -9,14 +9,11 @@ from urllib.parse import quote, unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/icicle-ai/cicd-templates"
 WIKI = f"{REPOSITORY}/wiki"
-SECTIONS = {
-    "Quick start": "Home",
-    "Configuration": "Configuration",
-    "Deployment": "Deployment",
-    "Versioning": "Versioning",
-    "Maintaining the templates": "Versioning",
-}
-GUIDES = {
+PAGES = {
+    "docs/quick-start.md": "Home",
+    "docs/configuration.md": "Configuration",
+    "docs/deployment.md": "Deployment",
+    "docs/versioning.md": "Versioning",
     "python/service-setup.md": "Python",
     "node-backend/service-setup.md": "Node-backend",
     "node-frontend/service-setup.md": "Static-frontends",
@@ -48,24 +45,6 @@ def markdown_lines(text):
         raise ValueError("Unclosed Markdown code fence")
 
 
-def split_readme(text):
-    sections = {"Introduction": []}
-    current = "Introduction"
-    for line, code in markdown_lines(text):
-        if not code and line.startswith("## "):
-            current = line[3:].strip()
-            if current in sections:
-                raise ValueError(f"Duplicate README section: {current}")
-            sections[current] = []
-        sections[current].append(line)
-    if list(sections)[1:] != list(SECTIONS):
-        raise ValueError(
-            "README sections changed; update SECTIONS and the page map in render_wiki.py. "
-            f"Expected: {', '.join(SECTIONS)}"
-        )
-    return {title: "".join(lines).strip() for title, lines in sections.items()}
-
-
 def rewrite_links(text, source):
     def replace(match):
         target = urlsplit(match[2])
@@ -75,18 +54,8 @@ def rewrite_links(text, source):
             posixpath.join(posixpath.dirname(source), unquote(target.path))
         )
         fragment = f"#{target.fragment}" if target.fragment else ""
-        if path == "README.md":
-            anchors = {
-                title.lower().replace(" ", "-"): page
-                for title, page in SECTIONS.items()
-            }
-            if target.fragment and target.fragment not in anchors:
-                raise ValueError(
-                    f"Unknown README anchor in {source}: {target.fragment}"
-                )
-            url = f"{WIKI}/{anchors.get(target.fragment, 'Home')}{fragment}"
-        elif path in GUIDES:
-            url = f"{WIKI}/{GUIDES[path]}{fragment}"
+        if path in PAGES:
+            url = f"{WIKI}/{PAGES[path]}{fragment}"
         else:
             if path.startswith("../") or not (ROOT / path).is_file():
                 raise ValueError(f"Missing repository link in {source}: {match[2]}")
@@ -101,36 +70,9 @@ def rewrite_links(text, source):
 
 
 def render(output):
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    sections = split_readme(readme)
-    sections["Introduction"] = sections["Introduction"].replace(
-        "\n\nRead these guides as separate pages in the [Wiki](https://github.com/ICICLE-ai/cicd-templates/wiki).",
-        "",
-    )
-    support = next(
-        (line for line in readme.splitlines() if line.startswith("For help, ")), None
-    )
-    if not support:
-        raise ValueError("README support line is missing; update the Home page map")
-    pages = {
-        "Home": (
-            "README.md",
-            "\n\n".join((sections["Introduction"], sections["Quick start"], support)),
-        ),
-        "Configuration": ("README.md", sections["Configuration"]),
-        "Deployment": ("README.md", sections["Deployment"]),
-        "Versioning": (
-            "README.md",
-            "\n\n".join(
-                (sections["Versioning"], sections["Maintaining the templates"])
-            ),
-        ),
-    }
-    for source, page in GUIDES.items():
-        pages[page] = (source, (ROOT / source).read_text(encoding="utf-8"))
-
     rendered = {}
-    for page, (source, body) in pages.items():
+    for source, page in PAGES.items():
+        body = (ROOT / source).read_text(encoding="utf-8")
         footer = f"_Source: [{source}]({REPOSITORY}/blob/main/{source}). Edit the repository file; changes on main publish here automatically._"
         rendered[page] = f"{rewrite_links(body, source).rstrip()}\n\n---\n\n{footer}\n"
     navigation = (

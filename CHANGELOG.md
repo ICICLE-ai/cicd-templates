@@ -12,7 +12,7 @@
 
 ### Adoption
 
-Pin the reusable workflow to `@v2.0.0` and use the same ref for manual downloads. Follow the current [quick start](README.md#quick-start); the original tagged starter calls `@main`, so replace that reference when copying it directly.
+Pin the reusable workflow to `@v2.0.0` and use the same ref for manual downloads. Follow the current [quick start](docs/quick-start.md#quick-start); the original tagged starter calls `@main`, so replace that reference when copying it directly.
 
 Existing services may stay on schema 1. Before migrating to schema 2, coordinate image names and registry access with the platform owner. CI does not create or rename pods.
 

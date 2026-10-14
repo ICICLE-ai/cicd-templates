@@ -2,7 +2,7 @@
 
 Use this template for any Python web service managed with uv. Keep your existing framework, build backend, and module layout.
 
-Follow the [shared quick start](../README.md#quick-start), then set `runtime-type: python` and a quoted `runtime-version`, such as `"3.13"`, in `icicle-service.yaml`.
+Follow the [shared quick start](../docs/quick-start.md#quick-start), then set `runtime-type: python` and a quoted `runtime-version`, such as `"3.13"`, in `icicle-service.yaml`.
 
 ## Required files
 
@@ -29,7 +29,7 @@ exec uvicorn your_package.main:app --host 0.0.0.0 --port 8000
 
 Replace the module and server command with your application's own. For a server that starts itself, use `exec python -m your_package`. Make the script executable with `chmod +x entrypoint.sh`. The image invokes it with `sh` and puts the installed virtual environment on `PATH`.
 
-Listen on `0.0.0.0`; the pod's networking port must match your server's port. The server runs as the unprivileged `icicle` user and must handle stop signals. See the shared [deployment requirements](../README.md#deployment).
+Listen on `0.0.0.0`; the pod's networking port must match your server's port. The server runs as the unprivileged `icicle` user and must handle stop signals. See the shared [deployment requirements](../docs/deployment.md#deployment).
 
 ## API and health routes
 
@@ -72,7 +72,7 @@ Use your installed distribution name for the local version fallback. CI sets `BU
 
 ## Test the image
 
-Run from your service repository. Match the Python version and dependency setting to your [configuration](../README.md#configuration):
+Run from your service repository. Match the Python version and dependency setting to your [configuration](../docs/configuration.md#configuration):
 
 ```sh
 TEMPLATES_REF=v2.0.0
@@ -92,4 +92,4 @@ In another terminal, run `curl -f http://localhost:8000/health` and request one 
 
 If needed, pass `BUILD_APT_PACKAGES` and `RUNTIME_APT_PACKAGES` as space-separated Debian package names. Keep compilers and headers in build packages; put libraries needed by the running service in runtime packages.
 
-CI fetches the authoritative Dockerfile from the same release as its workflow. See [versioning](../README.md#versioning) when upgrading, and [deployment](../README.md#deployment) for rollout checks and troubleshooting.
+CI fetches the authoritative Dockerfile from the same release as its workflow. See [versioning](../docs/versioning.md#versioning) when upgrading, and [deployment](../docs/deployment.md#deployment) for rollout checks and troubleshooting.
