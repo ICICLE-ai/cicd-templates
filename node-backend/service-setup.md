@@ -15,6 +15,8 @@ Start with the [shared quick start](../docs/quick-start.md#quick-start), then pr
 
 CI installs dependencies with `npm ci --include=dev`, runs `npm run build` when defined, then reinstalls with `npm ci --omit=dev`. Packages needed by the running server must be in `dependencies`. Commit lockfile updates whenever dependencies change.
 
+Installs preserve lifecycle scripts; `npm-install-mode: auto` reuses dependency layers when safe and installs with full source for root hooks, workspaces, or local dependencies. Use `full` for unusual dependency hooks that read source. Non-secret `.npmrc` is supported; registry credentials in it are rejected. See [configuration](../docs/configuration.md) for cache behavior.
+
 ## Startup and routes
 
 Set `entrypoint.sh` to the actual output path of your application:
@@ -64,18 +66,18 @@ Download the Dockerfile from the same release used by your deployment workflow:
 
 ```sh
 curl -fsSL \
-  https://raw.githubusercontent.com/icicle-ai/cicd-templates/v2.0.0/node-backend/Dockerfile \
+  https://raw.githubusercontent.com/icicle-ai/cicd-templates/v2.1.0/node-backend/Dockerfile \
   -o Dockerfile
 
 docker build \
-  --build-arg NODE_VERSION=22.11 \
+  --build-arg NODE_VERSION=24.22.0 \
   --build-arg BUILD_SHA=local-test \
   -t myservice:test .
 
 docker run --rm -p 8000:8000 myservice:test
 ```
 
-Match `NODE_VERSION` to your quoted `runtime-version`. Add `--build-arg BUILD_VERSION=0.1.0` to test a release version, and pass configured build/runtime system packages as build arguments if needed.
+Match `NODE_VERSION` to your quoted `runtime-version`. Pass `--build-arg NPM_INSTALL_MODE=full` if configured. Add `--build-arg BUILD_VERSION=0.1.0` to test a release version, and pass configured build/runtime system packages as build arguments if needed.
 
 In another terminal:
 

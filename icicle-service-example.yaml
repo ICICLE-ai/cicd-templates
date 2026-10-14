@@ -8,9 +8,9 @@ schema-version: 2
 # Use 4-64 lowercase letters/digits, starting with a letter; no hyphens.
 #
 # Example image:
-#   ghcr.io/icicle-ai/iciclepythonservice:0.1.0
+#   ghcr.io/icicle-ai/myservice:0.1.0
 #
-service-name: iciclepythonservice
+service-name: myservice
 
 # Semantic version (semver).
 # Becomes the version tag. CI deploys a separate unique build tag and records
@@ -45,9 +45,9 @@ service-type: ai
 # changes the image; the platform team owns environment, networking, and resources.
 #
 # Example:
-#   iciclepythonservice
+#   myservice
 #
-pod-name: iciclepythonservice
+pod-name: myservice
 
 # ──────────────────────────────────────────────────────────────────────
 # Runtime Configuration
@@ -63,17 +63,17 @@ pod-name: iciclepythonservice
 #
 runtime-type: python
 
-# Runtime version in MAJOR.MINOR format.
-# MUST be quoted. Resolved to the newest patch on that line at build time.
+# Quote MAJOR.MINOR.PATCH to pin the interpreter exactly.
+# Existing MAJOR.MINOR remains valid and resolves a patch on that minor line.
 #
 # This is the version the build uses to install the interpreter/toolchain.
 # For node-frontend it is the Node version used to BUILD the frontend.
 #
 # Examples:
-#   "3.13"    (python)
-#   "22.11"   (node-backend, node-frontend)
+#   "3.13.16"    (python)
+#   "24.22.0"   (node-backend, node-frontend)
 #
-runtime-version: "3.13"
+runtime-version: "3.13.16"
 
 # Python only: exclude the dev dependency group from the final image.
 # Declare application dependencies in [project.dependencies]. Existing services
@@ -81,10 +81,16 @@ runtime-version: "3.13"
 # Ignored by Node runtimes.
 include-dev-dependencies: false
 
+# Node only: auto reuses dependency layers when safe; root lifecycle hooks,
+# workspaces, and local dependencies install with full source. Use full for
+# unusual dependency hooks that read application files. Non-secret .npmrc is
+# supported; embedded credentials are rejected.
+# npm-install-mode: auto  # auto or full; omit for Python
+
 # Optional rollout settings. Omit health-url to discover the pod's default HTTP
 # endpoint, or its only HTTP endpoint. Use /health for backends, /healthcheck for
 # frontends; the response must expose the current BUILD_SHA. No redirects.
-# health-url: https://iciclepythonservice.pods.icicleai.tapis.io/health
+# health-url: https://myservice.pods.icicleai.tapis.io/health
 # rollout-timeout: 300  # integer seconds, 30-1800
 
 # ──────────────────────────────────────────────────────────────────────

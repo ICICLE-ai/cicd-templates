@@ -18,7 +18,7 @@
 # │                                                                         │
 # │ LOCAL TEST:                                                             │
 # │   docker build \                                                        │
-# │     --build-arg NODE_VERSION=22.11 \                                    │
+# │     --build-arg NODE_VERSION=24.22.0 \                                    │
 # │     --build-arg BUILD_APT_PACKAGES="" \                                 │
 # │     --build-arg RUNTIME_APT_PACKAGES="" \                               │
 # │     --build-arg BUILD_SHA=local-test \                                  │
@@ -51,10 +51,9 @@ RUN set -eux; \
       $BUILD_APT_PACKAGES; \
     rm -rf /var/lib/apt/lists/*
 
-# Node version in MAJOR.MINOR form. Populated from icicle-service.yaml runtime-version.
-# The newest patch release of that minor line is resolved from the official dist
-# index and verified against the published SHASUMS256.txt before it is unpacked.
-ARG NODE_VERSION=22.11
+# Exact MAJOR.MINOR.PATCH pins the runtime; legacy MAJOR.MINOR keeps resolving
+# the newest patch of that same minor line. Existing configs are not upgraded.
+ARG NODE_VERSION=24.22.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
@@ -62,15 +61,18 @@ RUN set -eux; \
       arm64) node_arch=arm64 ;; \
       *) echo "ERROR: unsupported architecture: $arch" >&2; exit 1 ;; \
     esac; \
-    full_version="$( \
-      curl -fsSL https://nodejs.org/dist/index.json \
-      | grep -o "\"version\":\"v${NODE_VERSION}\.[0-9]*\"" \
-      | head -n1 \
-      | cut -d'"' -f4 \
-    )"; \
+    case "$NODE_VERSION" in \
+      *[!0-9.]*|.*|*.) echo "ERROR: NODE_VERSION must be MAJOR.MINOR or MAJOR.MINOR.PATCH" >&2; exit 1 ;; \
+    esac; \
+    case "$(printf '%s' "$NODE_VERSION" | tr -cd '.' | wc -c | tr -d ' ')" in \
+      1) full_version="$(curl -fsSL https://nodejs.org/dist/index.json \
+           | grep -o "\"version\":\"v${NODE_VERSION}\\.[0-9]*\"" \
+           | head -n1 | cut -d'"' -f4)" ;; \
+      2) full_version="v${NODE_VERSION}" ;; \
+      *) echo "ERROR: NODE_VERSION must be MAJOR.MINOR or MAJOR.MINOR.PATCH" >&2; exit 1 ;; \
+    esac; \
     if [ -z "$full_version" ]; then \
       echo "ERROR: no Node release found for runtime-version ${NODE_VERSION}." >&2; \
-      echo "       Check https://nodejs.org/dist/index.json for valid MAJOR.MINOR lines." >&2; \
       exit 1; \
     fi; \
     tarball="node-${full_version}-linux-${node_arch}.tar.xz"; \
@@ -91,20 +93,55 @@ ENV PATH="/node/bin:$PATH" \
 
 WORKDIR /app
 
-# Fail fast with a clear message if required files are missing.
-RUN --mount=type=bind,source=.,target=/src,rw \
-    test -f /src/icicle-service.yaml || (echo "ERROR: icicle-service.yaml is missing. See template header." && exit 1) \
-    && test -f /src/package.json || (echo "ERROR: package.json is missing. See template header." && exit 1) \
-    && test -f /src/package-lock.json || (echo "ERROR: package-lock.json is missing. Run 'npm install' in your repo." && exit 1) \
-    && test -f /src/entrypoint.sh || (echo "ERROR: entrypoint.sh is missing. See template header." && exit 1)
+# Include project npm configuration in the dependency cache key. The wildcard
+# is optional; package.json and package-lock.json are always required.
+COPY package.json package-lock.json .npmr[c] npm-shrinkwrap.jso[n] binding.gy[p] ./
 
-# Install everything, including devDependencies, so the build script can run.
+# Retain dependency/native lifecycle scripts. Root lifecycle hooks, workspaces,
+# and local dependencies need the complete repository, so install after COPY.
+# Unusual dependency hooks that read application files can opt into full mode.
+ARG NPM_INSTALL_MODE=auto
 RUN --mount=type=cache,target=/root/.npm \
-    --mount=type=bind,source=package.json,target=package.json \
-    --mount=type=bind,source=package-lock.json,target=package-lock.json \
-    npm ci --include=dev
+    set -eu; \
+    case "$NPM_INSTALL_MODE" in auto|full) ;; \
+      *) echo "ERROR: NPM_INSTALL_MODE must be auto or full" >&2; exit 1 ;; esac; \
+    node -e ' \
+      const fs = require("fs"), p = require("./package.json"), lock = require(fs.existsSync("npm-shrinkwrap.json") ? "./npm-shrinkwrap.json" : "./package-lock.json"); \
+      const hooks = ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"]; \
+      const local = value => typeof value === "string" && /^(file:|link:|workspace:|\.?\.?\/)/.test(value); \
+      const deps = [p.dependencies, p.devDependencies, p.optionalDependencies]; \
+      /* npm parses quoted/escaped/scoped INI keys; inspect its normalized output. */ \
+      /* Keep output captured: config values may contain credentials. JSON hides auth keys. */ \
+      const normalized = require("child_process").spawnSync("npm", ["config", "list"], {encoding: "utf8"}); \
+      if (normalized.status !== 0) throw new Error("Unable to validate project npm configuration"); \
+      const entries = normalized.stdout.split(/\r?\n/).map(line => line.match(/^\s*(?:;\s*)?([^=]+?)\s*=\s*(.*)$/)).filter(Boolean); \
+      const credential = key => /(^|:)(_authToken|_auth|_password|password|username|cert|key|certfile|keyfile)$/i.test(key.trim()); \
+      if (normalized.stdout.includes("(protected)") || entries.some(([, key, value]) => credential(key) || /https?:\/\/[^/\s]*@/i.test(value))) { throw new Error("Project .npmrc must contain only nonsecret options; registry credentials require a separate secret mechanism"); } \
+      const needsSource = fs.existsSync("binding.gyp") || p.workspaces || hooks.some(h => (p.scripts || {})[h]) \
+        || deps.some(d => Object.values(d || {}).some(local)) \
+        || Object.values(lock.packages || {}).some(d => d.link || local(d.resolved)) \
+        || entries.some(([, key]) => /^(script-shell|cafile)$/i.test(key.trim())); \
+      fs.writeFileSync("/tmp/icicle-npm-mode", process.env.NPM_INSTALL_MODE === "full" || needsSource ? "full" : "manifests"); \
+    '; \
+    if [ "$NPM_INSTALL_MODE" = full ] || [ "$(cat /tmp/icicle-npm-mode)" = full ]; then \
+      touch /tmp/icicle-npm-full-source; \
+      echo "npm dependencies will be installed with full source"; \
+    else \
+      npm ci --include=dev; \
+    fi
 
 COPY . /app
+
+# Required-file checks follow dependency installation so source-only changes do
+# not invalidate the manifest install layer. COPY above reports missing manifests.
+RUN --mount=type=cache,target=/root/.npm \
+    set -eu; \
+    test -f icicle-service.yaml || { echo "ERROR: icicle-service.yaml is missing" >&2; exit 1; }; \
+    test -f entrypoint.sh || { echo "ERROR: entrypoint.sh is missing" >&2; exit 1; }; \
+    if [ -f /tmp/icicle-npm-full-source ]; then \
+      npm ci --include=dev; \
+      rm /tmp/icicle-npm-full-source; \
+    fi
 
 # Run the service's build script if it defines one (TypeScript, bundlers, etc.).
 # Services that ship plain JavaScript can omit it.
@@ -115,9 +152,11 @@ RUN set -eux; \
       echo "No build script defined in package.json — skipping."; \
     fi
 
-# Reinstall without devDependencies so only production deps ship in the image.
+# Preserve production lifecycle behavior (including NODE_ENV=production).
+# Generic pruning can retain development-mode native/generated artifacts.
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev
+    npm ci --omit=dev \
+    && find /app -type f -name .npmrc -delete
 
 
 # ╭───────────╮

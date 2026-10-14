@@ -16,6 +16,16 @@ class DeploymentError(RuntimeError):
     pass
 
 
+class HTTPConnectionError(DeploymentError):
+    pass
+
+
+class APIError(DeploymentError):
+    def __init__(self, method, status):
+        self.status = status
+        super().__init__(f"Tapis {method} failed with HTTP {status}")
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # Never forward either deployment or health credentials to a redirect.
@@ -51,7 +61,7 @@ class HTTPClient:
             # Do not log API bodies: pod definitions may contain secrets.
             return error.code, b""
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as error:
-            raise DeploymentError("HTTP connection failed") from error
+            raise HTTPConnectionError("HTTP connection failed") from error
 
 
 def checked_url(value):
@@ -102,7 +112,7 @@ def health_url(pod, runtime, override=""):
 def api_result(client, method, url, payload=None, timeout=10):
     status, body = client.request(method, url, payload=payload, api=True, timeout=timeout)
     if not 200 <= status < 300:
-        raise DeploymentError(f"Tapis {method} failed with HTTP {status}")
+        raise APIError(method, status)
     try:
         envelope = json.loads(body)
     except (ValueError, UnicodeDecodeError) as error:
@@ -117,6 +127,57 @@ def get_pod(client, url, timeout=10):
     if not isinstance(pod, dict):
         raise DeploymentError("Tapis did not return a pod definition")
     return pod
+
+
+def read_pod(client, url, *, deadline, clock, sleep, attempts=3):
+    """Retry safe pod reads only, within the deployment's overall deadline."""
+    for attempt in range(attempts):
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise DeploymentError("Deployment deadline expired while reading pod")
+        try:
+            return get_pod(client, url, timeout=min(10, remaining))
+        except (APIError, HTTPConnectionError) as error:
+            transient = (isinstance(error, HTTPConnectionError)
+                         or error.status in {408, 429, 500, 502, 503, 504})
+            if not transient or attempt == attempts - 1:
+                raise
+            sleep(min(2 ** attempt, max(0, deadline - clock())))
+
+
+def current_push(env, build_sha, *, opener=None):
+    """Manual dispatch can roll back; automatic branch pushes must still be HEAD."""
+    if env.get("GITHUB_EVENT_NAME") != "push":
+        return True
+    ref = env.get("GITHUB_REF", "")
+    if not ref.startswith("refs/heads/"):
+        return True
+    repository = env.get("GITHUB_REPOSITORY", "")
+    token = env.get("GH_TOKEN", "")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not token:
+        raise DeploymentError("Branch freshness check requires GITHUB_REPOSITORY and GH_TOKEN")
+    base = checked_url(env.get("GITHUB_API_URL", "https://api.github.com"))
+    if not base.startswith("https://"):
+        raise DeploymentError("GitHub API must use HTTPS")
+    branch = urllib.parse.quote(ref[len("refs/heads/"):], safe="")
+    url = f"{base.rstrip('/')}/repos/{repository}/git/ref/heads/{branch}"
+    request = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    try:
+        with (opener or urllib.request.build_opener(NoRedirect())).open(request, timeout=10) as response:
+            body = response.read(1024 * 1024 + 1)
+            if len(body) > 1024 * 1024:
+                raise ValueError("oversized response")
+            sha = json.loads(body)["object"]["sha"]
+            if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+                raise ValueError("invalid branch SHA")
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError,
+            ValueError, KeyError, TypeError) as error:
+        # Never print credentials, response bodies, or request headers.
+        raise DeploymentError("Could not verify current branch HEAD; pod was not changed") from error
+    return sha == build_sha
 
 
 def matches_health(body, runtime, expected_sha):
@@ -135,7 +196,7 @@ def matches_health(body, runtime, expected_sha):
 
 def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
            override_url="", timeout=300, interval=5, clock=time.monotonic,
-           sleep=time.sleep, log=print):
+           sleep=time.sleep, log=print, should_deploy=lambda: True):
     """Mutate only image; keep all deployment-owned environment/network fields."""
     if not re.fullmatch(r"[a-z][a-z0-9]{3,63}", pod_name):
         raise DeploymentError("Invalid pod-name")
@@ -146,35 +207,46 @@ def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
     if not image or any(char.isspace() for char in image):
         raise DeploymentError("Invalid image reference")
     pod_url = checked_url(base_url).rstrip("/") + "/v3/pods/" + pod_name
-    before = get_pod(client, pod_url)
+    deadline = clock() + timeout
+    before = read_pod(client, pod_url, deadline=deadline, clock=clock, sleep=sleep)
     endpoint = health_url(before, runtime, override_url)
     previous_start = before.get("start_instance_ts")
     previous_state = before.get("status", "UNKNOWN")
     previous_image = before.get("image", "")
+    # Recheck after the initial read, immediately before the first mutation.
+    if not should_deploy():
+        log("Skipped superseded automatic push: the branch now has a newer HEAD; pod was not changed")
+        return {"skipped": True}
+    if clock() >= deadline:
+        raise DeploymentError("Deployment deadline expired before updating pod")
     log(f"Deploying {image} to {pod_name}; previous image: {previous_image}")
     # Minimal update preserves environment_variables, networking, commands,
     # volumes, resources, and all other settings owned by the platform team.
-    api_result(client, "PUT", pod_url, {"image": image})
-    configured = get_pod(client, pod_url)
+    api_result(client, "PUT", pod_url, {"image": image}, timeout=min(10, deadline - clock()))
+    configured = read_pod(client, pod_url, deadline=deadline, clock=clock, sleep=sleep)
     if configured.get("image") != image:
         raise DeploymentError("Tapis did not persist the requested image; restart was not requested")
     # Deliberately do not retry this mutation: a lost response must not trigger
     # repeated restarts. A subsequent workflow run can safely deploy again.
-    api_result(client, "GET", pod_url + "/restart")
+    if clock() >= deadline:
+        raise DeploymentError("Deployment deadline expired before restart; requested image remains configured")
+    api_result(client, "GET", pod_url + "/restart", timeout=min(10, deadline - clock()))
     # A restart acknowledgement is not evidence that the serving instance
     # changed. Sites without timestamps must expose lifecycle progress in a
     # subsequent pod poll, even when the existing instance serves the same SHA.
     observed_restart = False
     observed_poll_transition = False
-    deadline = clock() + timeout
     last_state = None
     last_problem = "waiting for a new pod instance"
     while clock() < deadline:
-        remaining = max(0.1, min(10, deadline - clock()))
+        remaining = min(10, deadline - clock())
+        if remaining <= 0:
+            break
         try:
             pod = get_pod(client, pod_url, timeout=remaining)
         except DeploymentError as error:
-            if "HTTP 401" in str(error) or "HTTP 403" in str(error) or "HTTP 404" in str(error):
+            if not (isinstance(error, HTTPConnectionError)
+                    or isinstance(error, APIError) and error.status in {408, 429, 500, 502, 503, 504}):
                 raise
             last_problem = str(error)
         else:
@@ -204,7 +276,9 @@ def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
                 if container.get("ready") is False:
                     last_problem = "pod readiness probe has not passed"
                 else:
-                    remaining = max(0.1, min(10, deadline - clock()))
+                    remaining = min(10, deadline - clock())
+                    if remaining <= 0:
+                        break
                     try:
                         status, body = client.request("GET", endpoint, timeout=remaining)
                     except DeploymentError as error:
@@ -241,13 +315,18 @@ def main():
         result = deploy(HTTPClient(token, os.environ.get("HEALTHCHECK_TOKEN", "")),
                         base_url=args.base_url, pod_name=args.pod, image=args.image,
                         runtime=args.runtime, build_sha=args.build_sha,
-                        override_url=args.health_url, timeout=args.timeout)
+                        override_url=args.health_url, timeout=args.timeout,
+                        should_deploy=lambda: current_push(os.environ, args.build_sha))
     except (DeploymentError, ValueError) as error:
         print(f"Deployment failed: {error}", file=sys.stderr)
         return 1
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as output:
+            if result.get("skipped"):
+                output.write("Skipped superseded automatic push: the branch now has a newer HEAD. "
+                             "The pod was not changed by this run.\n")
+                return 0
             output.write(f"Verified `{args.pod}` at build `{args.build_sha}`.\n\n"
                          f"Image: `{result['image']}`\n\n"
                          f"Previous image: `{result['previous_image']}`\n")

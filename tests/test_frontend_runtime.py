@@ -6,6 +6,8 @@ Only fixed filesystem paths and the listen port are rebased into a temporary
 directory, so tests can run without root or modifying the host's Nginx config.
 """
 
+import base64
+import hashlib
 import concurrent.futures
 import contextlib
 import http.client
@@ -36,6 +38,33 @@ def free_port():
 
 class EchoHandler(http.server.BaseHTTPRequestHandler):
     def handle_request(self):
+        if self.path.startswith("/api/stream"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", "11")
+            if self.path.endswith("?accel=no"):
+                self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            self.wfile.write(b"first\n")
+            self.wfile.flush()
+            self.server.request_started.set()
+            self.server.release_response.wait(timeout=5)
+            self.wfile.write(b"last\n")
+            return
+        if self.path == "/api/websocket" and self.headers.get("Upgrade", "").lower() == "websocket":
+            self.send_response(101)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            accept = hashlib.sha1((self.headers["Sec-WebSocket-Key"] +
+                                  "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
+            self.send_header("Sec-WebSocket-Accept", base64.b64encode(accept).decode())
+            self.end_headers()
+            self.wfile.flush()
+            self.connection.settimeout(3)
+            # An empty masked client frame; answer with a text frame through the tunnel.
+            if self.rfile.read(6) == b"\x81\x80mask":
+                self.wfile.write(b"\x81\x02OK")
+            return
         if self.path == "/api/slow":
             self.server.request_started.set()
             self.server.release_response.wait(timeout=5)
@@ -59,7 +88,10 @@ class EchoHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Location", f"{scheme}://{self.headers['Host']}/api/example/items")
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
-        self.wfile.write(response)
+        try:
+            self.wfile.write(response)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Expected when a timeout test has already closed the proxy connection.
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = handle_request
 
@@ -85,7 +117,7 @@ def upstream(tls_context=None, request_started=None, release_response=None):
 
 
 class Frontend:
-    def __init__(self, binary, directory, ca_certificate=None):
+    def __init__(self, binary, directory, ca_certificate=None, options=None):
         self.directory = Path(directory)
         self.port = free_port()
         self.runtime = self.directory / "runtime"
@@ -97,6 +129,9 @@ class Frontend:
         (self.site / "index.html").write_bytes(INDEX)
         (self.site / ".build_sha").write_text("test-build-sha")
         (self.site / "assets/app.abcd1234.js").write_text("window.fixture = true;")
+        for asset in ("app-Bx5kJ7_p.js", "theme.12345678.css", "logo.svg", "translations.json",
+                      "app-short7.js", "app-allletters.js"):
+            (self.site / "assets" / asset).write_text(asset)
         (self.site / "robots.txt").write_text("User-agent: *")
         mime_types = self.directory / "mime.types"
         mime_types.write_text("types { text/html html; text/plain txt; application/javascript js; }")
@@ -127,11 +162,17 @@ class Frontend:
         bin_directory.mkdir()
         (bin_directory / "nginx").symlink_to(binary)
         self.environment = dict(os.environ, PATH=f"{bin_directory}:{os.environ['PATH']}")
-        self.environment.pop("BACKEND_URL", None)
+        for name in ("BACKEND_URL", "BACKEND_MAX_BODY_SIZE_MB", "BACKEND_CONNECT_TIMEOUT_SECONDS",
+                     "BACKEND_READ_TIMEOUT_SECONDS", "BACKEND_SEND_TIMEOUT_SECONDS",
+                     "BACKEND_STREAMING", "BACKEND_WEBSOCKETS"):
+            self.environment.pop(name, None)
+        self.environment.update(options or {})
         # An unrestricted envsubst would destroy these actual Nginx variables.
         self.environment.update({name: "BROKEN_NGINX_VARIABLE" for name in (
             "uri", "host", "scheme", "proxy_host", "remote_addr", "http_host",
             "http_x_forwarded_proto", "proxy_add_x_forwarded_for", "icicle_forwarded_proto",
+            "http_upgrade", "icicle_asset_cache", "icicle_upstream_upgrade",
+            "icicle_upstream_connection",
         )})
         self.process = None
         self.output = None
@@ -206,7 +247,7 @@ class FrontendRuntimeTests(unittest.TestCase):
         status, headers, body = frontend.request("/healthcheck")
         self.assertEqual((status, body), (200, b"test-build-sha"))
         self.assertIn("no-store", headers["Cache-Control"])
-        for path in ("/", "/index.html", "/example/details?tab=summary"):
+        for path in ("/", "/index.html", "/example/details?tab=summary", "/example/missing.js"):
             with self.subTest(path=path):
                 status, headers, body = frontend.request(path)
                 self.assertEqual((status, body), (200, INDEX))
@@ -215,8 +256,21 @@ class FrontendRuntimeTests(unittest.TestCase):
         self.assertEqual((status, body), (200, b"window.fixture = true;"))
         cache_control = ", ".join(headers.get_all("Cache-Control"))
         self.assertIn("max-age=31536000", cache_control)
-        self.assertIn("public, immutable", cache_control)
+        self.assertIn("public", cache_control)
+        self.assertIn("immutable", cache_control)
+        for asset in ("app-Bx5kJ7_p.js", "theme.12345678.css"):
+            status, headers, body = frontend.request(f"/assets/{asset}?v=current")
+            self.assertEqual((status, body), (200, asset.encode()))
+            self.assertIn("immutable", headers["Cache-Control"])
+        for asset in ("logo.svg", "translations.json", "app-short7.js", "app-allletters.js"):
+            status, headers, body = frontend.request(f"/assets/{asset}")
+            self.assertEqual((status, body), (200, asset.encode()))
+            self.assertEqual(headers["Cache-Control"], "no-cache")
+            self.assertIn("ETag", headers)
+            status, _, _ = frontend.request(f"/assets/{asset}", headers={"If-None-Match": headers["ETag"]})
+            self.assertEqual(status, 304)
         self.assertEqual(frontend.request("/assets/missing.js")[0], 404)
+        self.assertEqual(frontend.request("/assets/missing.abcd1234.js")[0], 404)
         self.assertEqual(frontend.request("/robots.txt")[2], b"User-agent: *")
 
     def test_without_backend_preserves_static_and_spa_behavior(self):
@@ -245,7 +299,7 @@ class FrontendRuntimeTests(unittest.TestCase):
                 "/api/example/items",
                 "/api/example/items?next=%2Fexample%3Fx%3D1&tag=one&tag=two&empty=",
                 "/api/encoded%2Fsegment?q=a+b%20c",
-                "/api/", "/api?probe=1", "/api/missing.js",
+                "/api/", "/api?probe=1", "/api/missing.js", "/api/assets/app.abcd1234.js",
             ):
                 with self.subTest(path=path):
                     status, _, body = frontend.request(path)
@@ -287,6 +341,127 @@ class FrontendRuntimeTests(unittest.TestCase):
                     self.assertEqual(response_headers["X-Backend"], "echo")
                     self.assertIn("session=backend-cookie", response_headers["Set-Cookie"])
             self.assertEqual(frontend.request("/api/failure")[0], 418)
+
+    def test_default_upload_limit_and_opt_in_larger_uploads(self):
+        with upstream() as port:
+            frontend = self.frontend(f"http://127.0.0.1:{port}")
+            generated = (frontend.runtime / "api.conf").read_text()
+            for directive in ("client_max_body_size 1m;", "proxy_connect_timeout 60s;",
+                              "proxy_read_timeout 60s;", "proxy_send_timeout 60s;", "proxy_buffering on;"):
+                self.assertIn(directive, generated)
+            boundary = "x" * (1024 * 1024)
+            self.assertEqual(frontend.request("/api/upload", "POST", boundary)[0], 200)
+            self.assertEqual(frontend.request("/api/upload", "POST", boundary + "x")[0], 413)
+            frontend.stop()
+            frontend.environment["BACKEND_MAX_BODY_SIZE_MB"] = "2"
+            frontend.start(f"http://127.0.0.1:{port}")
+            status, _, body = frontend.request("/api/upload", "POST", boundary + "x")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["body"], boundary + "x")
+            self.assertEqual(frontend.request("/api/upload", "POST", boundary * 2 + "x")[0], 413)
+
+    def test_configurable_upstream_timeout(self):
+        started, release = threading.Event(), threading.Event()
+        with upstream(request_started=started, release_response=release) as port:
+            frontend = self.frontend(f"http://127.0.0.1:{port}", options={
+                "BACKEND_CONNECT_TIMEOUT_SECONDS": "2", "BACKEND_READ_TIMEOUT_SECONDS": "1",
+                "BACKEND_SEND_TIMEOUT_SECONDS": "3",
+            })
+            try:
+                start = time.monotonic()
+                self.assertEqual(frontend.request("/api/slow")[0], 504)
+                self.assertTrue(started.is_set())
+                self.assertLess(time.monotonic() - start, 2.5)
+                config = (frontend.runtime / "api.conf").read_text()
+                self.assertIn("proxy_connect_timeout 2s;", config)
+                self.assertIn("proxy_send_timeout 3s;", config)
+            finally:
+                release.set()
+
+    def test_streaming_opt_in_and_upstream_buffering_header(self):
+        started, release = threading.Event(), threading.Event()
+        with upstream(request_started=started, release_response=release) as port:
+            frontend = self.frontend(f"http://127.0.0.1:{port}")
+            for mode, path, should_stream in (("off", "/api/stream", False),
+                                              ("on", "/api/stream", True),
+                                              ("off", "/api/stream?accel=no", True)):
+                with self.subTest(mode=mode, path=path):
+                    frontend.stop()
+                    frontend.environment["BACKEND_STREAMING"] = mode
+                    frontend.start(f"http://127.0.0.1:{port}")
+                    started.clear()
+                    release.clear()
+                    connection = http.client.HTTPConnection("127.0.0.1", frontend.port, timeout=3)
+                    def first_chunk():
+                        connection.request("GET", path)
+                        response = connection.getresponse()
+                        self.assertIsNone(response.headers.get("X-Accel-Buffering"))
+                        return response, response.read(6)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        pending = pool.submit(first_chunk)
+                        try:
+                            self.assertTrue(started.wait(timeout=3))
+                            if should_stream:
+                                response, chunk = pending.result(timeout=1)
+                                self.assertEqual(chunk, b"first\n")
+                            else:
+                                with self.assertRaises(concurrent.futures.TimeoutError):
+                                    pending.result(timeout=0.2)
+                        finally:
+                            release.set()
+                        response, chunk = pending.result(timeout=3)
+                        self.assertEqual(chunk + response.read(), b"first\nlast\n")
+                        connection.close()
+
+    def test_websocket_upgrade_is_opt_in_and_restricted_to_websocket(self):
+        with upstream() as port:
+            frontend = self.frontend(f"http://127.0.0.1:{port}")
+            for enabled in ("off", "on"):
+                frontend.stop()
+                frontend.environment["BACKEND_WEBSOCKETS"] = enabled
+                frontend.start(f"http://127.0.0.1:{port}")
+                for upgrade in (None, "h2c", "websocket, h2c", "websocket" if enabled == "off" else None):
+                    with self.subTest(enabled=enabled, upgrade=upgrade):
+                        headers = {"Connection": "Upgrade"}
+                        if upgrade:
+                            headers["Upgrade"] = upgrade
+                        status, _, body = frontend.request("/api/check", headers=headers)
+                        forwarded = {key.lower(): value for key, value in json.loads(body)["headers"].items()}
+                        self.assertEqual(status, 200)
+                        self.assertNotIn("upgrade", forwarded)
+                        self.assertNotIn("connection", forwarded)
+            with socket.create_connection(("127.0.0.1", frontend.port), timeout=3) as connection:
+                connection.sendall((
+                    "GET /api/websocket HTTP/1.1\r\nHost: localhost\r\n"
+                    "Connection: Upgrade\r\nUpgrade: WebSocket\r\n"
+                    "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+                ).encode())
+                handshake = b""
+                while b"\r\n\r\n" not in handshake:
+                    handshake += connection.recv(4096)
+                self.assertIn(b"101 Switching Protocols", handshake)
+                self.assertIn(b"s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", handshake)
+                connection.sendall(b"\x81\x80mask")
+                self.assertEqual(connection.recv(4), b"\x81\x02OK")
+
+    def test_invalid_runtime_options_fail_before_serving(self):
+        frontend = Frontend(self.nginx, self.directory)
+        bounds = {"BACKEND_MAX_BODY_SIZE_MB": 1024, "BACKEND_CONNECT_TIMEOUT_SECONDS": 75,
+                  "BACKEND_READ_TIMEOUT_SECONDS": 3600, "BACKEND_SEND_TIMEOUT_SECONDS": 3600}
+        invalid = [(name, value) for name, maximum in bounds.items()
+                   for value in ("", "0", "-1", "01", "1.5", "1s", str(maximum + 1),
+                                 "999999999999999999999", "1; return 200;")]
+        invalid += [(name, value) for name in ("BACKEND_STREAMING", "BACKEND_WEBSOCKETS")
+                    for value in ("", "true", "ON", "off; return 200;")]
+        for name, value in invalid:
+            with self.subTest(name=name, value=value):
+                result = subprocess.run(
+                    ["sh", str(frontend.entrypoint)], env=dict(frontend.environment, **{name: value}),
+                    capture_output=True, text=True, timeout=5, check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(name, result.stderr)
+                self.assertFalse(frontend.runtime.exists())
 
     def test_forwarded_scheme_preserves_ingress_tls_and_rejects_invalid_values(self):
         with upstream() as port:

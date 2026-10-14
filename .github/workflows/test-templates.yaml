@@ -2,63 +2,138 @@ name: Test shared templates
 
 on:
   push:
-    paths:
-      - node-frontend/**
-      - python/**
-      - node-backend/**
-      - icicle-service*.yaml
-      - tests/**
-      - scripts/**
-      - schema/**
-      - VERSION
-      - .github/workflows/deploy-service.yaml
-      - .github/workflows/test-templates.yaml
+    branches: [main]
   pull_request:
-    paths:
-      - node-frontend/**
-      - python/**
-      - node-backend/**
-      - icicle-service*.yaml
-      - tests/**
-      - scripts/**
-      - schema/**
-      - VERSION
-      - .github/workflows/deploy-service.yaml
-      - .github/workflows/test-templates.yaml
   workflow_dispatch:
+
+concurrency:
+  group: test-templates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.select.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select runtime and image checks
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 - <<'PY'
+          import fnmatch
+          import os
+          import subprocess
+          base = os.environ['BASE_SHA']
+          if os.environ['EVENT_NAME'] == 'workflow_dispatch' or not base or set(base) == {'0'}:
+              changed = True
+          elif subprocess.run(['git', 'cat-file', '-e', base + '^{commit}'],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+              # A force push may leave the previous commit unreachable. Run all checks.
+              changed = True
+          else:
+              files = subprocess.check_output(['git', 'diff', '--name-only', '-z', base, 'HEAD']).decode().split('\0')
+              patterns = ['python/**', 'node-backend/**', 'node-frontend/**', 'schema/**',
+                          'tests/**', 'icicle-service*.yaml', 'VERSION', 'deploy.yaml',
+                          'scripts/deploy_tapis.py', 'scripts/validate_config.py', 'scripts/requirements.txt',
+                          '.github/workflows/deploy-service.yaml', '.github/workflows/test-templates.yaml',
+                          '.github/dependabot.yml']
+              changed = any(fnmatch.fnmatch(path, pattern) for path in files
+                            if path and not path.lower().endswith('.md') and path != 'tests/test_render_wiki.py'
+                            for pattern in patterns)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'code={str(changed).lower()}\n')
+          PY
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Validate Wiki generation
+        run: |
+          python scripts/render_wiki.py "$RUNNER_TEMP/wiki-preview"
+          python -m unittest discover -s tests -p test_render_wiki.py -v
+
   runtime:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y nginx gettext-base openssl
           python -m pip install -r scripts/requirements.txt
-      - name: Test configuration, deployment, and frontend runtime
+      - name: Test configuration, deployment, automation, and frontend runtime
         run: |
           sh -n node-frontend/entrypoint.sh
           python -m unittest discover -s tests -v
 
   images:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build and exercise all three runtime images
         env:
           REQUIRE_DOCKER: '1'
         run: python tests/test_images.py -v
+
+  checks:
+    name: Template checks
+    needs: [changes, docs, runtime, images]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      DOCS_RESULT: ${{ needs.docs.result }}
+      CODE_CHANGED: ${{ needs.changes.outputs.code }}
+      RUNTIME_RESULT: ${{ needs.runtime.result }}
+      IMAGES_RESULT: ${{ needs.images.result }}
+    steps:
+      - name: Require all selected checks
+        run: |
+          test "$CHANGES_RESULT" = success || exit 1
+          test "$DOCS_RESULT" = success || exit 1
+          if [ "$CODE_CHANGED" = true ]; then
+            test "$RUNTIME_RESULT" = success || exit 1
+            test "$IMAGES_RESULT" = success || exit 1
+          else
+            test "$CODE_CHANGED" = false || exit 1
+            test "$RUNTIME_RESULT" = skipped || exit 1
+            test "$IMAGES_RESULT" = skipped || exit 1
+          fi

@@ -1,10 +1,18 @@
 # Enabled only when BACKEND_URL is set. Match /api and /api/... but not /apiary.
 location ~ ^/api(?:/|$) {
     # No URI or trailing slash here: preserve the complete path and query.
-    # The startup script substitutes only BACKEND_URL, leaving nginx variables.
+    # The startup script substitutes only validated options, preserving nginx variables.
     proxy_pass ${BACKEND_URL};
     proxy_http_version 1.1;
-    proxy_set_header Connection "";
+    client_max_body_size ${BACKEND_MAX_BODY_SIZE_MB}m;
+    proxy_connect_timeout ${BACKEND_CONNECT_TIMEOUT_SECONDS}s;
+    proxy_read_timeout ${BACKEND_READ_TIMEOUT_SECONDS}s;
+    proxy_send_timeout ${BACKEND_SEND_TIMEOUT_SECONDS}s;
+    # Response buffering is disabled only for services opting into streaming.
+    # Request buffering remains enabled, including for upload body enforcement.
+    proxy_buffering ${BACKEND_PROXY_BUFFERING};
+    proxy_set_header Upgrade $icicle_upstream_upgrade;
+    proxy_set_header Connection $icicle_upstream_connection;
     # Keep upstream redirects rewritten by proxy_redirect relative, avoiding
     # an internal http://frontend:8000 URL behind Tapis's HTTPS ingress.
     absolute_redirect off;

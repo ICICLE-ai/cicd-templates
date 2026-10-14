@@ -18,7 +18,7 @@
 # │                                                                         │
 # │ LOCAL TEST:                                                             │
 # │   docker build \                                                        │
-# │     --build-arg PYTHON_VERSION=3.13 \                                   │
+# │     --build-arg PYTHON_VERSION=3.13.16 \                                   │
 # │     --build-arg BUILD_APT_PACKAGES="" \                                 │
 # │     --build-arg RUNTIME_APT_PACKAGES="" \                               │
 # │     -t my-service:test .                                                │
@@ -39,7 +39,7 @@
 # ╰─────────────╯
 FROM debian:trixie-20260421-slim@sha256:cedb1ef40439206b673ee8b33a46a03a0c9fa90bf3732f54704f99cb061d2c5a AS build-stage
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -56,18 +56,11 @@ RUN if [ -n "$BUILD_APT_PACKAGES" ]; then \
     fi
 
 # Python version. Populated from icicle-service.yaml runtime-version.
-ARG PYTHON_VERSION=3.14
+ARG PYTHON_VERSION=3.14.8
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv python install ${PYTHON_VERSION}
 
 WORKDIR /app
-
-# Fail fast with a clear message if required files are missing.
-RUN --mount=type=bind,source=.,target=/src,rw \
-    test -f /src/icicle-service.yaml || (echo "ERROR: icicle-service.yaml is missing. See template header." && exit 1) \
-    && test -f /src/pyproject.toml || (echo "ERROR: pyproject.toml is missing. See template header." && exit 1) \
-    && test -f /src/uv.lock || (echo "ERROR: uv.lock is missing. Run 'uv lock' in your repo." && exit 1) \
-    && test -f /src/entrypoint.sh || (echo "ERROR: entrypoint.sh is missing. See template header." && exit 1)
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
@@ -75,6 +68,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --python "$PYTHON_VERSION"
 
 COPY . /app
+
+# Check source-only requirements after the dependency cache boundary.
+RUN test -f icicle-service.yaml || { echo "ERROR: icicle-service.yaml is missing" >&2; exit 1; }; \
+    test -f entrypoint.sh || { echo "ERROR: entrypoint.sh is missing" >&2; exit 1; }
 
 # Preserve the historical dependency set when this argument is omitted.
 # New service configs explicitly pass false to exclude the dev group from the
@@ -103,12 +100,11 @@ LABEL io.icicle.template.version=${TEMPLATE_VERSION} \
 
 # Runtime apt packages. Populated from icicle-service.yaml runtime-apt-packages.
 ARG RUNTIME_APT_PACKAGES=""
-RUN if [ -n "$RUNTIME_APT_PACKAGES" ]; then \
-      set -eux; \
-      apt-get update && \
-      apt-get install -y --no-install-recommends $RUNTIME_APT_PACKAGES && \
-      rm -rf /var/lib/apt/lists/*; \
-    fi
+# Managed Python uses the system trust store for outbound HTTPS.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates $RUNTIME_APT_PACKAGES; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 999 icicle \
     && useradd --system --gid 999 --uid 999 --create-home icicle
@@ -122,7 +118,8 @@ ARG BUILD_VERSION=""
 ENV BUILD_SHA=${BUILD_SHA} \
     BUILD_VERSION=${BUILD_VERSION}
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 USER icicle
 WORKDIR /app

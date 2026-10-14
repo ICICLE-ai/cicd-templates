@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      official-actions:
+        patterns: ['*']
+  - package-ecosystem: docker
+    directories:
+      - /python
+      - /node-backend
+      - /node-frontend
+    schedule:
+      interval: weekly

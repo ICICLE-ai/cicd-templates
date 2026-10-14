@@ -4,7 +4,7 @@ Use `node-frontend` for an app that builds to static HTML, CSS, and JavaScript. 
 
 ## Prepare the app
 
-Follow the shared [quick start](../docs/quick-start.md#quick-start), then set `runtime-type: node-frontend` and a quoted Node `runtime-version`, such as `"22.11"`, in `icicle-service.yaml`. See [configuration](../docs/configuration.md#configuration) for the schema and naming rules.
+Follow the shared [quick start](../docs/quick-start.md#quick-start), then set `runtime-type: node-frontend` and a quoted Node `runtime-version`, such as `"24.22.0"`, in `icicle-service.yaml`. See [configuration](../docs/configuration.md#configuration) for the schema and naming rules.
 
 Your repository needs:
 
@@ -13,7 +13,9 @@ Your repository needs:
 - A build that produces `dist/index.html` and its static assets.
 - The frontend `.dockerignore` from the quick start.
 
-The image runs `npm ci --include=dev` and `npm run build`. Build tools can be dev dependencies; no Node packages ship in the final image. Frameworks and source layouts are your choice. Check the output locally:
+The image runs `npm ci --include=dev` and `npm run build`. Build tools can be dev dependencies; no Node packages ship in the final image. Frameworks and source layouts are your choice.
+
+Node installs preserve lifecycle scripts and automatically use full source for root hooks, workspaces, local dependencies, or source-dependent npm configuration. Set `npm-install-mode: full` for unusual dependency hooks; use the matching local build argument `NPM_INSTALL_MODE=full`. Non-secret `.npmrc` options are supported; registry credentials are rejected. See [configuration](../docs/configuration.md) for cache behavior. Check the output locally:
 
 ```bash
 npm ci
@@ -71,19 +73,32 @@ Nginx forwards client address, host, and scheme headers. The ingress must overwr
 
 Adopting these templates requires one image build. After adoption, changing or removing `BACKEND_URL` needs only an environment update and restart of the same image.
 
+Optional proxy settings are runtime environment variables; changes need a restart:
+
+| Variable | Default | Accepted values |
+|---|---|---|
+| `BACKEND_MAX_BODY_SIZE_MB` | `1` | Integer 1–1024 MiB. |
+| `BACKEND_CONNECT_TIMEOUT_SECONDS` | `60` | Integer 1–75 seconds. |
+| `BACKEND_READ_TIMEOUT_SECONDS` | `60` | Integer 1–3600 seconds between upstream reads. |
+| `BACKEND_SEND_TIMEOUT_SECONDS` | `60` | Integer 1–3600 seconds between upstream writes. |
+| `BACKEND_STREAMING` | `off` | `on` / `off`; `on` disables response buffering for streams such as SSE. |
+| `BACKEND_WEBSOCKETS` | `off` | `on` / `off`; enables WebSocket upgrades. |
+
+Request buffering stays enabled. Invalid values fail startup. For long-lived streams or WebSockets, set a read timeout suitable for the backend's heartbeat interval. The ingress must also support streaming or WebSocket upgrades and allow the required connection duration.
+
 ## Test the image locally
 
 From your application directory, fetch all build inputs from the same [template release](../docs/versioning.md#versioning) used by your workflow:
 
 ```bash
-TEMPLATE_REF=v2.0.0
+TEMPLATE_REF=v2.1.0
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL "$BASE/node-frontend/Dockerfile" -o Dockerfile
 curl -fsSL "$BASE/node-frontend/nginx.conf" -o nginx.conf
 curl -fsSL "$BASE/node-frontend/nginx-api.conf.template" -o nginx-api.conf.template
 curl -fsSL "$BASE/node-frontend/entrypoint.sh" -o nginx-entrypoint.sh
 
-docker build --build-arg NODE_VERSION=22.11 \
+docker build --build-arg NODE_VERSION=24.22.0 \
   --build-arg BUILD_SHA=local-test -t myfrontend:test .
 docker run --rm -d --name frontend-test -p 8000:8000 myfrontend:test
 curl --retry 10 --retry-connrefused --retry-delay 1 \
@@ -113,7 +128,7 @@ Use an endpoint your backend implements, with any required credentials or body. 
 Nginx serves `/app/site` on port `8000` as the unprivileged `icicle` user. Startup renders and validates configuration under `/tmp/nginx`; graceful shutdown lets active requests finish.
 
 - `/healthcheck` returns the build SHA used by CI to verify rollout.
-- `/assets/` receives long-lived immutable caching; use fingerprinted filenames there.
+- `/assets/` gets one-year immutable caching only for a filename token separated by a dot or dash before its extension: at least eight hexadecimal characters, or at least eight base64url characters containing both a letter and digit (for example, `app.abcdef12.js` or `app-Abcd1234.js`). Matching files **must be content-versioned**: change the filename whenever the content changes. Other assets use `no-cache` and must revalidate.
 - `index.html` is uncached, and unmatched frontend paths fall back to it.
 - `/api` and `/api/...` go to the backend only when `BACKEND_URL` is set.
 

@@ -152,6 +152,39 @@ class ServiceConfigTests(unittest.TestCase):
                     self.assertEqual(result.github_outputs()["health_url"], "")
                     self.assertEqual(result.github_outputs()["include_dev_dependencies"], "true")
 
+    def test_exact_runtime_patch_versions_are_preserved(self):
+        for schema_version in (1, 2):
+            for runtime, versions in (("python", ("3.13", "3.13.9")),
+                                      ("node-backend", ("22.11", "22.11.0", "24.22.0")),
+                                      ("node-frontend", ("22.11", "24.22.0"))):
+                for version in versions:
+                    with self.subTest(schema=schema_version, runtime=runtime, version=version):
+                        self.write_config({"schema-version": schema_version, "service-name": "frontend",
+                                           "pod-name": "frontend", "runtime-type": runtime,
+                                           "runtime-version": version})
+                        result = load_config(self.path)
+                        self.assertEqual(result.config["runtime-version"], version)
+                        self.assertEqual(result.github_outputs()["runtime_version"], version)
+        for invalid in ("24.22.0.1", "24..0", "v24.22.0", "24.22.x", "24.22.0 ", "24.22.0\n"):
+            with self.subTest(invalid=invalid):
+                self.assert_rejected("runtime-version", invalid)
+
+    def test_npm_install_mode_defaults_validation_and_outputs(self):
+        for schema_version in (1, 2):
+            for runtime in ("node-backend", "node-frontend"):
+                for mode in ("auto", "full"):
+                    self.write_config({"schema-version": schema_version, "service-name": "frontend",
+                                       "pod-name": "frontend", "runtime-type": runtime,
+                                       "npm-install-mode": mode})
+                    self.assertEqual(load_config(self.path).github_outputs()["npm_install_mode"], mode)
+        self.write_config()
+        self.assertEqual(load_config(self.path).github_outputs()["npm_install_mode"], "auto")
+        for invalid in ("manifests", "ignore-scripts", "", True, None):
+            self.assert_rejected("npm-install-mode", invalid)
+        self.write_config({"runtime-type": "python", "npm-install-mode": "full"})
+        with self.assertRaisesRegex(ConfigError, "Node runtimes"):
+            load_config(self.path)
+
     def test_required_keys_and_types_are_enforced(self):
         for field in BASELINE:
             with self.subTest(missing=field):
@@ -335,6 +368,7 @@ class ServiceConfigTests(unittest.TestCase):
                     BUILD_SHA="test-sha", GITHUB_OUTPUT=str(output),
                     BUILD_VERSION=values["service_version"],
                     INCLUDE_DEV_DEPENDENCIES=values["include_dev_dependencies"],
+                    NPM_INSTALL_MODE=values["npm_install_mode"],
                 )
                 result = subprocess.run(
                     ["bash", "-e", "-o", "pipefail", "-c", script], env=environment,

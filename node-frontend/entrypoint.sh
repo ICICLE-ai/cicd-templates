@@ -28,14 +28,59 @@ if [ -n "$BACKEND_URL" ]; then
     export BACKEND_URL
 fi
 
+# Keep nginx's existing limits unless a service explicitly opts into larger
+# uploads, slower upstreams, streaming responses, or WebSocket upgrades.
+validate_integer() {
+    name=$1 value=$2 maximum=$3
+    case "$value" in
+        ''|*[!0-9]*|0*)
+            echo "ERROR: $name must be an integer from 1 to $maximum." >&2
+            exit 1 ;;
+    esac
+    # Bound the digit count before shell arithmetic/comparison (no overflow).
+    if [ "${#value}" -gt 4 ] || [ "$value" -gt "$maximum" ]; then
+        echo "ERROR: $name must be an integer from 1 to $maximum." >&2
+        exit 1
+    fi
+}
+
+BACKEND_MAX_BODY_SIZE_MB=${BACKEND_MAX_BODY_SIZE_MB-1}
+BACKEND_CONNECT_TIMEOUT_SECONDS=${BACKEND_CONNECT_TIMEOUT_SECONDS-60}
+BACKEND_READ_TIMEOUT_SECONDS=${BACKEND_READ_TIMEOUT_SECONDS-60}
+BACKEND_SEND_TIMEOUT_SECONDS=${BACKEND_SEND_TIMEOUT_SECONDS-60}
+BACKEND_STREAMING=${BACKEND_STREAMING-off}
+BACKEND_WEBSOCKETS=${BACKEND_WEBSOCKETS-off}
+validate_integer BACKEND_MAX_BODY_SIZE_MB "$BACKEND_MAX_BODY_SIZE_MB" 1024
+validate_integer BACKEND_CONNECT_TIMEOUT_SECONDS "$BACKEND_CONNECT_TIMEOUT_SECONDS" 75
+validate_integer BACKEND_READ_TIMEOUT_SECONDS "$BACKEND_READ_TIMEOUT_SECONDS" 3600
+validate_integer BACKEND_SEND_TIMEOUT_SECONDS "$BACKEND_SEND_TIMEOUT_SECONDS" 3600
+for name in BACKEND_STREAMING BACKEND_WEBSOCKETS; do
+    case "$name" in
+        BACKEND_STREAMING) value=$BACKEND_STREAMING ;;
+        BACKEND_WEBSOCKETS) value=$BACKEND_WEBSOCKETS ;;
+    esac
+    case "$value" in
+        on|off) ;;
+        *) echo "ERROR: $name must be on or off." >&2; exit 1 ;;
+    esac
+done
+case "$BACKEND_STREAMING" in
+    on) BACKEND_PROXY_BUFFERING=off ;;
+    off) BACKEND_PROXY_BUFFERING=on ;;
+esac
+export BACKEND_MAX_BODY_SIZE_MB BACKEND_CONNECT_TIMEOUT_SECONDS
+export BACKEND_READ_TIMEOUT_SECONDS BACKEND_SEND_TIMEOUT_SECONDS
+export BACKEND_PROXY_BUFFERING BACKEND_WEBSOCKETS
+
 # The image creates this directory for uid 999. Recreate it if /tmp is mounted
 # as an empty writable volume; no writes to /etc/nginx are needed at runtime.
 mkdir -p /tmp/nginx
-cp /etc/nginx/templates/nginx.conf /tmp/nginx/nginx.conf
+envsubst '${BACKEND_WEBSOCKETS}' \
+    < /etc/nginx/templates/nginx.conf > /tmp/nginx/nginx.conf
 # Always replace the include, including after a restart with proxying disabled.
 : > /tmp/nginx/api.conf
 if [ -n "$BACKEND_URL" ]; then
-    envsubst '${BACKEND_URL}' \
+    envsubst '${BACKEND_URL} ${BACKEND_MAX_BODY_SIZE_MB} ${BACKEND_CONNECT_TIMEOUT_SECONDS} ${BACKEND_READ_TIMEOUT_SECONDS} ${BACKEND_SEND_TIMEOUT_SECONDS} ${BACKEND_PROXY_BUFFERING}' \
         < /etc/nginx/templates/nginx-api.conf.template > /tmp/nginx/api.conf
 fi
 
