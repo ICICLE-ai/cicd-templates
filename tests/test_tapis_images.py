@@ -90,7 +90,7 @@ class SlackTests(unittest.TestCase):
     def setUp(self):
         self.error = MissingImageApproval(IMAGE, "icicleai")
         self.env = {"SLACK_PROVISIONING_WEBHOOK_URL": "https://hooks.slack.com/services/TEAM/CHANNEL/webhook-secret",
-                    "TAPIS_TOKEN": "api-secret", "TAPIS_PROVISION_TOKEN": "admin-secret",
+                    "TAPIS_TOKEN": "api-secret", "DATABASE_PASSWORD": "database-secret",
                     "HEALTHCHECK_TOKEN": "health-secret", "GITHUB_REPOSITORY": "example/platform",
                     "GITHUB_RUN_ID": "123", "GITHUB_SERVER_URL": "https://github.com"}
 
@@ -109,7 +109,7 @@ class SlackTests(unittest.TestCase):
             self.assertIn("https://github.com/example/platform/actions/runs/123", body)
             self.assertEqual(json.loads(body)["blocks"][0]["text"]["type"], "plain_text")
             logs = summary.read() + body + str(log.call_args_list)
-            for secret in ("api-secret", "admin-secret", "health-secret", "webhook-secret"):
+            for secret in ("api-secret", "database-secret", "health-secret", "webhook-secret"):
                 self.assertNotIn(secret, logs)
         opener.open.assert_called_once()
 

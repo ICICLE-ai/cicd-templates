@@ -10,7 +10,7 @@ Choose a runtime, then follow its short guide:
 | `node-backend` | Node APIs or frontends that need a running Node server | [Node setup](../node-backend/service-setup.md) | [`.dockerignore`](../node-backend/.dockerignore) |
 | `node-frontend` | Static sites built by Node and served by Nginx | [Frontend setup](../node-frontend/service-setup.md) | [`.dockerignore`](../node-frontend/.dockerignore) |
 
-Before deploying, the platform team must provision a Tapis pod, allow its image repository, and configure networking and registry access. The optional [platform provisioning workflows](provisioning.md) support this setup. Your repository needs access to the organization secrets used below.
+Before deploying, the platform team must provision a Tapis pod, allow its image repository, and configure networking and registry access. The optional [platform provisioning workflows](provisioning.md) support this setup.
 
 **1. Create `icicle-service.yaml` in your service repository.** This example is for Python; change the runtime fields for Node:
 
@@ -53,7 +53,11 @@ jobs:
       HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
 ```
 
-`TAPIS_TOKEN` is required. Omit both registry secrets to authenticate GHCR with `github.actor` and `github.token`; the package must grant this calling repository write access. To use another registry credential, provide both `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`. `HEALTHCHECK_TOKEN` is optional for health endpoints requiring a bearer token. You can also copy the [starter workflow](../deploy.yaml).
+Grant your service repository access to the organization secret **`TAPIS_TOKEN`**. Optional shared **`REGISTRY_USERNAME`** and **`REGISTRY_PASSWORD`** also belong at organization scope, with access granted only to repositories using them. Omit both registry secrets to authenticate GHCR with `github.actor` and `github.token`; the package must grant this calling repository write access.
+
+Set **`HEALTHCHECK_TOKEN`** as a service-specific repository secret only when its health endpoint requires a bearer token. Provisioning's administrator list and Slack webhook are organization secrets used only by the platform repository. Developer usernames, `PORT`, and `BACKEND_URL` are ordinary configuration; keep credentials out of URLs. See the [secret access table](provisioning.md#platform-setup).
+
+All scopes use `${{ secrets.NAME }}`. Environment secrets override repository secrets, which override organization secrets, so avoid duplicate names unless an override is intentional. [GitHub documents this precedence](https://docs.github.com/en/actions/reference/security/secrets). You can also copy the [starter workflow](../deploy.yaml).
 
 **4. Commit and push to your service's `main` branch.** Check the Actions run for build and rollout results.
 

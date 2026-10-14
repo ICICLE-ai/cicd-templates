@@ -114,7 +114,7 @@ class WorkflowTests(unittest.TestCase):
                 for step in job['steps'][:-1]:
                     self.assertNotIn('secrets.', repr(step))
                 credential_step = job['steps'][-1]
-                self.assertEqual(credential_step['env']['TAPIS_PROVISION_TOKEN'], '${{ secrets.TAPIS_PROVISION_TOKEN }}')
+                self.assertEqual(credential_step['env']['TAPIS_TOKEN'], '${{ secrets.TAPIS_TOKEN }}')
                 self.assertEqual(credential_step['env']['SLACK_PROVISIONING_WEBHOOK_URL'], '${{ secrets.SLACK_PROVISIONING_WEBHOOK_URL }}')
                 self.assertTrue(any('pip install' in step.get('run', '') for step in job['steps'][:-1]))
                 for step in job['steps']:

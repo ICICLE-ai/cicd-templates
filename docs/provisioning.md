@@ -8,26 +8,32 @@ This feature is unreleased and is not included in `v2.1.0`.
 
 Use one trusted platform repository. Limit write access to trusted operators, protect its default branch, and create a GitHub environment named **`tapis`** with required platform reviewers and deployments restricted to the default branch. Workflows read the selected default-branch commit.
 
-Add these organization secrets with visibility restricted to that platform repository:
+Keep shared credentials and policy in **organization secrets**. Use **Selected repositories** to grant each secret where it is used:
 
-| Secret | Required | Value |
+| Organization secret | Repository access | Value |
 |---|---|---|
-| `TAPIS_PROVISION_TOKEN` | Yes | Stable automation account's token for the target tenant. It must create pods/volumes and have resource `ADMIN` access for lifecycle operations. |
-| `TAPIS_REQUIRED_ADMINS` | Yes | JSON array of two distinct Tapis usernames, such as `["instituteadminone","instituteadmintwo"]`. |
-| `SLACK_PROVISIONING_WEBHOOK_URL` | For Slack alerts | Incoming webhook URL for the platform team's channel. |
-| `HEALTHCHECK_TOKEN` | If needed | Bearer token accepted by protected application health endpoints. |
+| `TAPIS_TOKEN` | Platform repository and service repositories that deploy | Existing automation account's token. Provisioning needs pod/volume creation and resource `ADMIN` access for lifecycle operations. |
+| `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` | Service repositories that need this credential pair | Optional shared registry credentials; GHCR builds can use the calling repository's `GITHUB_TOKEN` instead. |
+| `TAPIS_REQUIRED_ADMINS` | Platform repository only | Required JSON array of two distinct Tapis usernames, such as `["instituteadminone","instituteadmintwo"]`. |
+| `SLACK_PROVISIONING_WEBHOOK_URL` | Platform repository only | Incoming webhook URL for missing image approval alerts. |
 
-Use canonical Tapis usernames. Required administrators keep `ADMIN` even if listed as developers. Image approval remains a separate platform action; the provisioning token does not need image-allowlist administrator privileges.
+Reuse `TAPIS_TOKEN`; no additional provisioning token is required. Keep service repositories' access to this token so their existing deployments continue working.
+
+Keep service-specific `HEALTHCHECK_TOKEN` values in **repository secrets**. If central provisioning or lifecycle checks call a protected health endpoint, configure its matching token in the platform repository or its `tapis` environment too. Central workflows currently use one token for all services; they do not select different tokens per catalog entry.
+
+Actions reads all these scopes through `${{ secrets.NAME }}`; there is no separate organization-secret namespace. Environment secrets override repository secrets, which override organization secrets. Avoid duplicate names unless an override is intentional. See [GitHub's secret precedence rules](https://docs.github.com/en/actions/reference/security/secrets).
+
+Use canonical Tapis usernames. Required administrators keep `ADMIN` even if listed as developers. Image approval remains a separate platform action; provisioning does not require image-allowlist administrator privileges.
 
 Set repository variables `TAPIS_BASE_URL` and `TAPIS_TENANT_ID` for another deployment. Defaults are `https://icicleai.tapis.io` and `icicleai`. Keep the tenant ID consistent with the API endpoint.
 
-Other workflows in an authorized repository can use its organization secrets. Protecting these workflow files alone does not isolate the token. Do not expose it to service repositories. Existing application deployments keep their separate `TAPIS_TOKEN`; scope those credentials to their own pods rather than sharing the provisioning account.
+Other workflows in an authorized repository can use its organization secrets. Repository access settings control availability; these workflows cannot enforce a secret's organization or repository scope.
 
 ## Add a service
 
 Copy [the catalog example](../provisioning-example.yaml) to `provisioning/<pod-name>.yaml` and submit it for platform review. Catalog `schema-version: 1` is independent of application `icicle-service.yaml` schema 1/2.
 
-Specify the runtime, already-built image, expected build SHA, developers, and optional volumes. Names need 4–64 lowercase letters/digits, starting with a letter. The catalog filename and new pod image repository name must match the pod name. Use unique image tags. Never commit tokens or passwords.
+Specify the runtime, already-built image, expected build SHA, developers, and optional volumes. Developer usernames, `PORT`, and `BACKEND_URL` are ordinary configuration, not Actions secrets; keep credentials out of URLs. Names need 4–64 lowercase letters/digits, starting with a letter. The catalog filename and new pod image repository name must match the pod name. Use unique image tags. Never commit tokens or passwords.
 
 New pods set `PORT=5000`. Override `environment-variables.PORT` with a string from `"1024"` to `"65535"`; networking follows that value. Backends must read `PORT`. Frontends need the forthcoming template release to honor it; existing `v2.1.0` frontend images require `PORT: "8000"` until rebuilt.
 

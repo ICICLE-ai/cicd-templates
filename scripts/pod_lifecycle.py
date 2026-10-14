@@ -185,9 +185,9 @@ def main():
     parser.add_argument("--tenant", default=os.environ.get("TAPIS_TENANT_ID", ""))
     parser.add_argument("--build-sha", default="")
     args = parser.parse_args()
-    token = os.environ.get("TAPIS_PROVISION_TOKEN", "")
+    token = os.environ.get("TAPIS_TOKEN", "")
     if not token:
-        parser.error("TAPIS_PROVISION_TOKEN is required in the environment")
+        parser.error("TAPIS_TOKEN is required in the environment")
     try:
         config = load_config(args.config)
         result = operate(HTTPClient(token, os.environ.get("HEALTHCHECK_TOKEN", "")), config,

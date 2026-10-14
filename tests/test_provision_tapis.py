@@ -403,8 +403,8 @@ class ProvisionTests(unittest.TestCase):
             with self.subTest(values=values), self.assertRaises(DeploymentError):
                 permissions({"permissions": values})
 
-    def test_cli_uses_only_provisioning_credentials(self):
-        env = {"TAPIS_PROVISION_TOKEN": "private-provision-token", "HEALTHCHECK_TOKEN": "private-health-token",
+    def test_cli_reuses_tapis_token_with_separate_health_credentials(self):
+        env = {"TAPIS_TOKEN": "private-tapis-token", "HEALTHCHECK_TOKEN": "private-health-token",
                "TAPIS_REQUIRED_ADMINS": json.dumps(ADMINS), "TAPIS_TENANT_ID": "other",
                "GITHUB_REPOSITORY": OWNER}
         with mock.patch.dict(os.environ, env, clear=True), \
@@ -413,22 +413,22 @@ class ProvisionTests(unittest.TestCase):
                 mock.patch.object(provision_tapis, "HTTPClient") as factory, \
                 mock.patch.object(provision_tapis, "provision", return_value={}) as execute:
             self.assertEqual(provision_tapis.main(), 0)
-        factory.assert_called_once_with("private-provision-token", "private-health-token")
+        factory.assert_called_once_with("private-tapis-token", "private-health-token")
         self.assertEqual(execute.call_args.kwargs["tenant"], "other")
         self.assertFalse(execute.call_args.kwargs["apply"])
         self.assertEqual(execute.call_args.args[2], ADMINS)
 
-    def test_cli_does_not_accept_ordinary_deployment_token(self):
-        with mock.patch.dict(os.environ, {"TAPIS_TOKEN": "wrong-token"}, clear=True), \
+    def test_cli_requires_tapis_token(self):
+        with mock.patch.dict(os.environ, {"HEALTHCHECK_TOKEN": "wrong-token"}, clear=True), \
                 mock.patch("sys.argv", ["provision_tapis", "--config", "pod.yaml"]), \
                 contextlib.redirect_stderr(io.StringIO()) as output:
             with self.assertRaises(SystemExit):
                 provision_tapis.main()
-        self.assertIn("TAPIS_PROVISION_TOKEN is required", output.getvalue())
+        self.assertIn("TAPIS_TOKEN is required", output.getvalue())
         self.assertNotIn("wrong-token", output.getvalue())
 
     def test_cli_missing_approval_notifies_apply_once_and_never_plan(self):
-        env = {"TAPIS_PROVISION_TOKEN": "private-provision-token", "TAPIS_REQUIRED_ADMINS": json.dumps(ADMINS)}
+        env = {"TAPIS_TOKEN": "private-tapis-token", "TAPIS_REQUIRED_ADMINS": json.dumps(ADMINS)}
         for apply in (False, True):
             with self.subTest(apply=apply):
                 arguments = ["provision_tapis", "--config", "pod.yaml"] + (["--apply"] if apply else [])
@@ -440,7 +440,7 @@ class ProvisionTests(unittest.TestCase):
                     self.assertEqual(provision_tapis.main(), 1)
                     self.assertEqual(notify.call_count, int(apply))
                 self.assertIn("approval required", output.getvalue())
-                self.assertNotIn("private-provision-token", output.getvalue())
+                self.assertNotIn("private-tapis-token", output.getvalue())
 
 
 if __name__ == "__main__":

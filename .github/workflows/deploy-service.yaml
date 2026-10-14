@@ -4,6 +4,7 @@ on:
   workflow_call:
     secrets:
       TAPIS_TOKEN:
+        description: Shared Tapis token, explicitly passed by the calling repository
         required: true
       REGISTRY_USERNAME:
         description: Optional GHCR username; provide together with REGISTRY_PASSWORD

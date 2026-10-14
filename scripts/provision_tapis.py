@@ -324,9 +324,9 @@ def main():
     parser.add_argument("--owner", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--apply", action="store_true", help="Create resources; otherwise only plan")
     args = parser.parse_args()
-    token = os.environ.get("TAPIS_PROVISION_TOKEN", "")
+    token = os.environ.get("TAPIS_TOKEN", "")
     if not token:
-        parser.error("TAPIS_PROVISION_TOKEN is required in the environment")
+        parser.error("TAPIS_TOKEN is required in the environment")
     try:
         config = load_config(args.config)
         admins = required_admins(os.environ.get("TAPIS_REQUIRED_ADMINS", ""))

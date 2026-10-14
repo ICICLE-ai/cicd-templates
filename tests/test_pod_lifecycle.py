@@ -304,8 +304,8 @@ class LifecycleTests(unittest.TestCase):
         for sensitive in ("PRIVATE", "never-print-me", "environment_variables", "secret API"):
             self.assertNotIn(sensitive, output)
 
-    def test_cli_uses_only_provisioning_token_and_optional_health_token(self):
-        env = {"TAPIS_PROVISION_TOKEN": "private-provision-token", "HEALTHCHECK_TOKEN": "private-health-token",
+    def test_cli_reuses_tapis_token_and_optional_health_token(self):
+        env = {"TAPIS_TOKEN": "private-tapis-token", "HEALTHCHECK_TOKEN": "private-health-token",
                "TAPIS_TENANT_ID": "anotherTenant"}
         with mock.patch.dict(os.environ, env, clear=True), \
                 mock.patch("sys.argv", ["pod_lifecycle.py", "--config", "pods/service.yaml", "--action", "stop"]), \
@@ -313,24 +313,24 @@ class LifecycleTests(unittest.TestCase):
                 mock.patch.object(pod_lifecycle, "HTTPClient") as factory, \
                 mock.patch.object(pod_lifecycle, "operate", return_value={"action": "stop", "pod": "servicepod"}) as operate:
             self.assertEqual(pod_lifecycle.main(), 0)
-            factory.assert_called_once_with("private-provision-token", "private-health-token")
+            factory.assert_called_once_with("private-tapis-token", "private-health-token")
             self.assertEqual(operate.call_args.args[1:3], (CONFIG, "stop"))
             self.assertEqual(operate.call_args.kwargs["tenant"], "anotherTenant")
 
-    def test_cli_does_not_accept_ordinary_deployment_token(self):
-        with mock.patch.dict(os.environ, {"TAPIS_TOKEN": "wrong-token"}, clear=True), \
+    def test_cli_requires_tapis_token(self):
+        with mock.patch.dict(os.environ, {"HEALTHCHECK_TOKEN": "wrong-token"}, clear=True), \
                 mock.patch("sys.argv", ["pod_lifecycle.py", "--config", "pods/service.yaml", "--action", "stop"]), \
                 contextlib.redirect_stderr(io.StringIO()) as output:
             with self.assertRaises(SystemExit):
                 pod_lifecycle.main()
-        self.assertIn("TAPIS_PROVISION_TOKEN is required", output.getvalue())
+        self.assertIn("TAPIS_TOKEN is required", output.getvalue())
         self.assertNotIn("wrong-token", output.getvalue())
 
     def test_cli_notifies_missing_approval_once_and_remains_failed(self):
         for delivered in (True, False):
             with self.subTest(delivered=delivered):
                 error = pod_lifecycle.MissingImageApproval(IMAGE, "tenant")
-                with mock.patch.dict(os.environ, {"TAPIS_PROVISION_TOKEN": "private-token"}, clear=True), \
+                with mock.patch.dict(os.environ, {"TAPIS_TOKEN": "private-token"}, clear=True), \
                         mock.patch("sys.argv", ["pod_lifecycle.py", "--config", "pods/service.yaml", "--action", "restart"]), \
                         mock.patch.object(pod_lifecycle, "load_config", return_value=CONFIG), \
                         mock.patch.object(pod_lifecycle, "operate", side_effect=error), \

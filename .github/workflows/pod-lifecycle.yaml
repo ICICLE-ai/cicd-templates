@@ -78,8 +78,10 @@ jobs:
           EXPECTED_BUILD_SHA: ${{ inputs.build-sha }}
           TAPIS_BASE_URL: ${{ vars.TAPIS_BASE_URL || 'https://icicleai.tapis.io' }}
           TAPIS_TENANT_ID: ${{ vars.TAPIS_TENANT_ID || 'icicleai' }}
-          TAPIS_PROVISION_TOKEN: ${{ secrets.TAPIS_PROVISION_TOKEN }}
+          # Shared organization secrets; use the existing Tapis credential.
+          TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
           SLACK_PROVISIONING_WEBHOOK_URL: ${{ secrets.SLACK_PROVISIONING_WEBHOOK_URL }}
+          # Optional repository/environment secret for the target health endpoint.
           HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
         run: |
           set -euo pipefail
