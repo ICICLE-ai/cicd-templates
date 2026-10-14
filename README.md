@@ -20,8 +20,8 @@ Before deploying, the platform team must provision a Tapis pod, allow its image 
 
 ```yaml
 schema-version: 2
-service-name: accountapi
-pod-name: accountapi
+service-name: myservice
+pod-name: myservice
 service-version: 0.1.0
 project-name: myproject
 service-type: ai
@@ -124,6 +124,6 @@ Use Python 3.9+, Nginx with HTTP SSL support, `envsubst`, and OpenSSL. `NGINX_BI
 
 Update `VERSION` and the changelog in the release commit. After checks pass, publish its exact `vMAJOR.MINOR.PATCH` tag, then update onboarding defaults. Never move a published exact tag. Existing services upgrade explicitly.
 
-The Wiki is generated from these Markdown files. To refresh it, clone `https://github.com/ICICLE-ai/cicd-templates.wiki.git`, run `python3 scripts/render_wiki.py /path/to/wiki-checkout` from this repository, then review, commit, and push the Wiki changes. Edit documentation here so future updates preserve it.
+The [Publish Wiki workflow](.github/workflows/publish-wiki.yaml) updates the Wiki automatically when Markdown, the renderer, or the publishing workflow changes on `main`. Pull requests check generation without publishing. Edit documentation here; no extra token or manual refresh is needed. To retry, run **Publish Wiki** from Actions on `main`. For a local preview, run `python3 scripts/render_wiki.py /tmp/wiki-preview`.
 
 For help, contact `#icicle-service-support` or open an [issue](https://github.com/icicle-ai/cicd-templates/issues).

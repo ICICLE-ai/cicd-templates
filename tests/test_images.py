@@ -158,7 +158,7 @@ class ImageSmokeTests(unittest.TestCase):
         status, headers, body = self.request(port, "/healthcheck")
         self.assertEqual((status, body), (200, BUILD_SHA.encode()))
         self.assertIn("no-store", headers["Cache-Control"])
-        for path in ("/", "/index.html", "/account/settings"):
+        for path in ("/", "/index.html", "/example/details"):
             status, headers, body = self.request(port, path)
             self.assertEqual((status, body), (200, INDEX))
             self.assertIn("no-store", headers["Cache-Control"])
@@ -184,7 +184,7 @@ class ImageSmokeTests(unittest.TestCase):
                 self.container("node-frontend", "--network", network, "--env", "BACKEND_URL=http://backend:8000") as (_name, port),
             ):
                 self.assert_frontend(port)
-                path, body = "/api/account/session?next=%2Faccount&tag=one&tag=two", '{"test":true}'
+                path, body = "/api/example/items?next=%2Fexample&tag=one&tag=two", '{"test":true}'
                 status, _, response = self.request(port, path, "POST", body)
                 value = json.loads(response)
                 self.assertEqual(status, 200)

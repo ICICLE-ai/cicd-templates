@@ -25,13 +25,16 @@ CI supplies the Dockerfile, Nginx templates, and startup script from the pinned 
 
 ## Call the backend
 
-**New frontends must use relative `/api/...` URLs.** Keep `apiFetch` relative to the frontend origin; do not prepend a backend hostname or compile `BACKEND_URL` into the browser bundle.
+**New frontends must use relative `/api/...` URLs.** Use the browser's `fetch` or your application's HTTP client without prepending a backend hostname or compiling `BACKEND_URL` into the browser bundle.
 
-```typescript
-export const fetchAccountSession = async (): Promise<AccountSession> => {
-  const response = await apiFetch("/api/account/session");
+```javascript
+export async function fetchData() {
+  const response = await fetch("/api/example/items");
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
   return response.json();
-};
+}
 ```
 
 Enforce this convention in application reviews and tests; shared CI does not inspect request code. Backends must expose the matching `/api/...` routes.
@@ -42,7 +45,7 @@ Set `BACKEND_URL` in the frontend container's runtime environment:
 BACKEND_URL=http://backend:3000
 ```
 
-A request to `/api/account/session?refresh=true` reaches `http://backend:3000/api/account/session?refresh=true`. Nginx preserves the full path, query, method, body, and normal request headers. API errors remain API responses instead of falling back to the SPA.
+A request to `/api/example/items?limit=10` reaches `http://backend:3000/api/example/items?limit=10`. Nginx preserves the full path, query, method, body, and normal request headers. API errors remain API responses instead of falling back to the SPA.
 
 The value must be an HTTP or HTTPS origin, optionally including a port and one trailing slash. Paths, credentials, query strings, fragments, and whitespace are rejected at startup.
 
@@ -99,7 +102,7 @@ docker run --rm -d --name frontend-test --network app-network \
   -p 8000:8000 -e BACKEND_URL=http://backend:3000 myfrontend:test
 curl --retry 10 --retry-connrefused --retry-delay 1 \
   http://localhost:8000/healthcheck
-curl 'http://localhost:8000/api/account/session?refresh=true'
+curl 'http://localhost:8000/api/example/items?limit=10'
 docker stop frontend-test
 ```
 

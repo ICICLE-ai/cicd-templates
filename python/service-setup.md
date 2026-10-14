@@ -63,7 +63,7 @@ def health(response: Response):
     }
 
 
-@app.get("/api/example")
+@app.get("/api/example/items")
 def example():
     return {"message": "Hello"}
 ```

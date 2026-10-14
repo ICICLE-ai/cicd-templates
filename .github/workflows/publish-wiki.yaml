@@ -1,0 +1,76 @@
+name: Publish Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - scripts/render_wiki.py
+      - .github/workflows/publish-wiki.yaml
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - scripts/render_wiki.py
+      - .github/workflows/publish-wiki.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Check Wiki generation
+        run: python scripts/render_wiki.py "$RUNNER_TEMP/wiki-preview"
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-wiki
+      cancel-in-progress: false
+    steps:
+      # Read current main so delayed or rerun jobs cannot publish older docs.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Check out the Wiki
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}.wiki
+          ref: master
+          path: wiki
+      - name: Generate and publish pages
+        shell: bash
+        run: |
+          python source/scripts/render_wiki.py wiki
+          git -C wiki add -- '*.md'
+          git -C wiki diff --cached --check
+          if git -C wiki diff --cached --quiet; then
+            echo "Wiki is already up to date." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          source_revision=$(git -C source rev-parse HEAD)
+          git -C wiki config user.name 'github-actions[bot]'
+          git -C wiki config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C wiki commit -m "docs: sync from ${source_revision}"
+          git -C wiki push origin HEAD:master
+          echo "Published Wiki from ${source_revision}." >> "$GITHUB_STEP_SUMMARY"

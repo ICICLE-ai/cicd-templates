@@ -56,7 +56,7 @@ class EchoHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("X-Backend", "echo")
         if self.path == "/api/redirect":
             scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
-            self.send_header("Location", f"{scheme}://{self.headers['Host']}/api/account/session")
+            self.send_header("Location", f"{scheme}://{self.headers['Host']}/api/example/items")
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
         self.wfile.write(response)
@@ -206,7 +206,7 @@ class FrontendRuntimeTests(unittest.TestCase):
         status, headers, body = frontend.request("/healthcheck")
         self.assertEqual((status, body), (200, b"test-build-sha"))
         self.assertIn("no-store", headers["Cache-Control"])
-        for path in ("/", "/index.html", "/account/settings?tab=profile"):
+        for path in ("/", "/index.html", "/example/details?tab=summary"):
             with self.subTest(path=path):
                 status, headers, body = frontend.request(path)
                 self.assertEqual((status, body), (200, INDEX))
@@ -222,11 +222,11 @@ class FrontendRuntimeTests(unittest.TestCase):
     def test_without_backend_preserves_static_and_spa_behavior(self):
         frontend = self.frontend()
         self.assert_static_behavior(frontend)
-        self.assertEqual(frontend.request("/api/account/session?x=1")[2], INDEX)
+        self.assertEqual(frontend.request("/api/example/items?x=1")[2], INDEX)
 
     def test_empty_backend_preserves_existing_api_fallback(self):
         frontend = self.frontend("")
-        self.assertEqual(frontend.request("/api/account/session")[2], INDEX)
+        self.assertEqual(frontend.request("/api/example/items")[2], INDEX)
 
     def test_missing_build_sha_returns_empty_uncached_liveness_response(self):
         frontend = self.frontend()
@@ -235,15 +235,15 @@ class FrontendRuntimeTests(unittest.TestCase):
         self.assertEqual((status, body), (200, b""))
         self.assertEqual(headers["Content-Length"], "0")
         self.assertIn("no-store", headers["Cache-Control"])
-        self.assertEqual(frontend.request("/account/settings")[2], INDEX)
+        self.assertEqual(frontend.request("/example/details")[2], INDEX)
 
     def test_proxy_preserves_full_path_query_and_static_behavior(self):
         with upstream() as port:
             frontend = self.frontend(f"http://127.0.0.1:{port}")
             self.assert_static_behavior(frontend)
             for path in (
-                "/api/account/session",
-                "/api/account/session?next=%2Faccount%3Fx%3D1&tag=one&tag=two&empty=",
+                "/api/example/items",
+                "/api/example/items?next=%2Fexample%3Fx%3D1&tag=one&tag=two&empty=",
                 "/api/encoded%2Fsegment?q=a+b%20c",
                 "/api/", "/api?probe=1", "/api/missing.js",
             ):
@@ -268,9 +268,9 @@ class FrontendRuntimeTests(unittest.TestCase):
                 with self.subTest(method=method):
                     # Force body buffering so the configured writable temp
                     # directory is exercised, as well as ordinary forwarding.
-                    payload = json.dumps({"account": "test", "data": "x" * 20000})
+                    payload = json.dumps({"item": "test", "data": "x" * 20000})
                     status, response_headers, body = frontend.request(
-                        "/api/account/session?source=frontend", method, payload, headers,
+                        "/api/example/items?source=frontend", method, payload, headers,
                     )
                     self.assertEqual(status, 200)
                     echo = json.loads(body)
@@ -306,7 +306,7 @@ class FrontendRuntimeTests(unittest.TestCase):
                 "Host": "frontend.example.test", "X-Forwarded-Proto": "https",
             })
             self.assertEqual(status, 302)
-            self.assertEqual(headers["Location"], "/api/account/session")
+            self.assertEqual(headers["Location"], "/api/example/items")
 
     def test_restart_with_new_backend_or_no_backend_needs_no_rebuild(self):
         with upstream() as first, upstream() as second:
@@ -395,18 +395,18 @@ class FrontendRuntimeTests(unittest.TestCase):
         context.set_servername_callback(lambda _socket, name, _context: server_names.append(name))
         with upstream(context) as port:
             frontend = self.frontend(f"https://localhost:{port}", ca_certificate=certificate)
-            status, _, body = frontend.request("/api/account/session?tls=1")
+            status, _, body = frontend.request("/api/example/items?tls=1")
             self.assertEqual(status, 200)
-            self.assertEqual(json.loads(body)["path"], "/api/account/session?tls=1")
+            self.assertEqual(json.loads(body)["path"], "/api/example/items?tls=1")
             self.assertIn("localhost", server_names)
             status, headers, _ = frontend.request("/api/redirect", headers={
                 "Host": "frontend.example.test", "X-Forwarded-Proto": "https",
             })
             self.assertEqual(status, 302)
-            self.assertEqual(headers["Location"], "/api/account/session")
+            self.assertEqual(headers["Location"], "/api/example/items")
             frontend.stop()
             frontend.start(f"https://127.0.0.1:{port}")
-            self.assertEqual(frontend.request("/api/account/session")[0], 502)
+            self.assertEqual(frontend.request("/api/example/items")[0], 502)
 
 
 if __name__ == "__main__":

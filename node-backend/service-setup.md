@@ -31,7 +31,7 @@ For plain JavaScript, this might be `exec node src/main.js`. The container invok
 
 Listen on `0.0.0.0:8000`, or the port configured for your pod. The image runs as the unprivileged `icicle` user with `/app` as its working directory.
 
-New application endpoints called by a frontend must use `/api/...`, such as `/api/account/session`. Frontends call that relative path, and the shared proxy preserves the prefix and query string. Keep operational health at `GET /health`.
+New application endpoints called by a frontend must use `/api/...`, such as `/api/example/items`. Frontends call that relative path, and the shared proxy preserves the prefix and query string. Keep operational health at `GET /health`.
 
 ## Health response
 

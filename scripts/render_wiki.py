@@ -131,7 +131,7 @@ def render(output):
 
     rendered = {}
     for page, (source, body) in pages.items():
-        footer = f"_Source: [{source}]({REPOSITORY}/blob/main/{source}). Edit the repository file, then regenerate this wiki._"
+        footer = f"_Source: [{source}]({REPOSITORY}/blob/main/{source}). Edit the repository file; changes on main publish here automatically._"
         rendered[page] = f"{rewrite_links(body, source).rstrip()}\n\n---\n\n{footer}\n"
     navigation = (
         ("Home", "Quick start"),
