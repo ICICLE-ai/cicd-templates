@@ -24,12 +24,12 @@ Use a POSIX shell script that performs any initialization, then replaces itself 
 ```sh
 #!/bin/sh
 set -eu
-exec uvicorn your_package.main:app --host 0.0.0.0 --port 8000
+exec uvicorn your_package.main:app --host 0.0.0.0 --port "${PORT:-5000}"
 ```
 
 Replace the module and server command with your application's own. For a server that starts itself, use `exec python -m your_package`. Make the script executable with `chmod +x entrypoint.sh`. The image invokes it with `sh` and puts the installed virtual environment on `PATH`.
 
-Listen on `0.0.0.0`; the pod's networking port must match your server's port. The server runs as the unprivileged `icicle` user and must handle stop signals. See the shared [deployment requirements](../docs/deployment.md#deployment).
+New services must read runtime `PORT`, defaulting to `5000`, and listen on `0.0.0.0`; the pod's networking port must match. A server that starts itself can use `port = int(os.environ.get("PORT", "5000"))`. Existing services can retain port `8000`. The server runs as the unprivileged `icicle` user and must handle stop signals. See the shared [deployment requirements](../docs/deployment.md#deployment).
 
 ## API and health routes
 
@@ -85,7 +85,7 @@ docker build -f "$dockerfile" \
   --build-arg BUILD_VERSION=0.1.0 \
   -t pythonservice:test .
 rm "$dockerfile"
-docker run --rm -p 8000:8000 pythonservice:test
+docker run --rm -p 8000:5000 -e PORT=5000 pythonservice:test
 ```
 
 In another terminal, run `curl -f http://localhost:8000/health` and request one of your `/api/...` routes. Health should report `build_sha: "local-test"`. Confirm imports work in this final image, where the project is installed without editable mode and dev dependencies may be absent.

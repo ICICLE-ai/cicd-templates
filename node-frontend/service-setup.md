@@ -55,6 +55,8 @@ Unset or empty `BACKEND_URL` preserves the previous static/SPA behavior, includi
 
 ## Configure the deployed frontend
 
+New provisioned pods set `PORT=5000`; an explicit `PORT` selects another port from 1024–65535. Nginx reads it at startup. Leaving `PORT` unset preserves port `8000` for existing containers. This setting requires the unreleased frontend changes; images built from `v2.1.0` still listen on `8000` and must use that port until rebuilt with a release containing this change.
+
 The [deployment workflow](../docs/deployment.md#deployment) manages the existing pod's image. Runtime environment and networking remain platform-managed. Merge this setting into the pod's `environment_variables`, retain its other variables, and restart:
 
 ```json
@@ -125,7 +127,7 @@ Use an endpoint your backend implements, with any required credentials or body. 
 
 ## Runtime behavior
 
-Nginx serves `/app/site` on port `8000` as the unprivileged `icicle` user. Startup renders and validates configuration under `/tmp/nginx`; graceful shutdown lets active requests finish.
+Nginx serves `/app/site` on runtime `PORT` (default `8000` when unset) as the unprivileged `icicle` user. Startup renders and validates configuration under `/tmp/nginx`; graceful shutdown lets active requests finish. Match the pod's networking port to `PORT`.
 
 - `/healthcheck` returns the build SHA used by CI to verify rollout.
 - `/assets/` gets one-year immutable caching only for a filename token separated by a dot or dash before its extension: at least eight hexadecimal characters, or at least eight base64url characters containing both a letter and digit (for example, `app.abcdef12.js` or `app-Abcd1234.js`). Matching files **must be content-versioned**: change the filename whenever the content changes. Other assets use `no-cache` and must revalidate.

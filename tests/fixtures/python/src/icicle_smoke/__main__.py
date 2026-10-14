@@ -33,5 +33,6 @@ def stop(_signal, _frame):
 
 
 signal.signal(signal.SIGTERM, stop)
-with HTTPServer(("0.0.0.0", 8000), Handler) as server:
+# Keep the legacy default so the same image exercises old and new deployments.
+with HTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8000"))), Handler) as server:
     server.serve_forever()

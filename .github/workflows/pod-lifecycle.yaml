@@ -1,0 +1,88 @@
+name: Start, stop, or restart a pod
+
+on:
+  workflow_dispatch:
+    inputs:
+      pod-name:
+        description: Pod name from the reviewed provisioning catalog
+        required: true
+        type: string
+      action:
+        description: Lifecycle operation
+        required: true
+        type: choice
+        options: [start, stop, restart]
+      build-sha:
+        description: Expected application commit SHA if the current image lacks a sha-<commit>-<run>-<attempt> tag
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lifecycle:
+    if: github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: tapis
+    concurrency:
+      group: tapis-operations-${{ vars.TAPIS_TENANT_ID || 'icicleai' }}
+      cancel-in-progress: false
+    steps:
+      - name: Validate dispatch inputs
+        id: inputs
+        env:
+          POD_NAME: ${{ inputs.pod-name }}
+          POD_ACTION: ${{ inputs.action }}
+          EXPECTED_BUILD_SHA: ${{ inputs.build-sha }}
+        run: |
+          set -euo pipefail
+          [[ "$POD_NAME" =~ ^[a-z][a-z0-9]{3,63}$ ]] \
+            || { echo "Pod names need 4–64 lowercase letters/digits, starting with a letter." >&2; exit 1; }
+          case "$POD_ACTION" in start|stop|restart) ;; *) echo "Choose start, stop, or restart." >&2; exit 1 ;; esac
+          if [ -n "$EXPECTED_BUILD_SHA" ]; then
+            [[ "$EXPECTED_BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] \
+              || { echo "Build SHA must be a full lowercase Git commit SHA." >&2; exit 1; }
+          fi
+          echo "config=provisioning/${POD_NAME}.yaml" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout reviewed platform catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install validation dependencies
+        run: python -m pip install -r scripts/requirements.txt
+
+      - name: Validate catalog configuration
+        env:
+          CONFIG_PATH: ${{ steps.inputs.outputs.config }}
+        run: python -m scripts.pod_config --config "$CONFIG_PATH" --catalog-root provisioning
+
+      - name: Run lifecycle operation and verify result
+        env:
+          CONFIG_PATH: ${{ steps.inputs.outputs.config }}
+          POD_ACTION: ${{ inputs.action }}
+          EXPECTED_BUILD_SHA: ${{ inputs.build-sha }}
+          TAPIS_BASE_URL: ${{ vars.TAPIS_BASE_URL || 'https://icicleai.tapis.io' }}
+          TAPIS_TENANT_ID: ${{ vars.TAPIS_TENANT_ID || 'icicleai' }}
+          TAPIS_PROVISION_TOKEN: ${{ secrets.TAPIS_PROVISION_TOKEN }}
+          SLACK_PROVISIONING_WEBHOOK_URL: ${{ secrets.SLACK_PROVISIONING_WEBHOOK_URL }}
+          HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
+        run: |
+          set -euo pipefail
+          arguments=(--config "$CONFIG_PATH" --action "$POD_ACTION")
+          if [ -n "$EXPECTED_BUILD_SHA" ]; then arguments+=(--build-sha "$EXPECTED_BUILD_SHA"); fi
+          python -m scripts.pod_lifecycle "${arguments[@]}"

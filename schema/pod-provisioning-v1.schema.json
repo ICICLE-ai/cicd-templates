@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ICICLE managed pod catalog, version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema-version", "pod-name", "runtime-type", "image", "build-sha", "developers"],
+  "properties": {
+    "schema-version": {"type": "integer", "const": 1},
+    "pod-name": {"$ref": "#/$defs/id", "not": {"enum": ["catalog", "snapshots", "volumes", "admin", "catalogs", "snapshot", "volume", "image", "images", "template", "templates", "stack", "stacks", "nodes", "metrics", "secrets"]}},
+    "runtime-type": {"enum": ["python", "node-backend", "node-frontend"]},
+    "image": {"type": "string", "minLength": 3, "maxLength": 512},
+    "build-sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "developers": {"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": {"$ref": "#/$defs/username"}},
+    "environment-variables": {"type": "object", "maxProperties": 100, "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}, "additionalProperties": {"type": "string", "maxLength": 16384}},
+    "resources": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "cpu_request": {"type": "integer", "minimum": 1},
+        "cpu_limit": {"type": "integer", "minimum": 1},
+        "mem_request": {"type": "integer", "minimum": 1},
+        "mem_limit": {"type": "integer", "minimum": 1},
+        "gpus": {"type": "integer", "minimum": 0}
+      }
+    },
+    "time-to-stop-default": {"type": "integer", "anyOf": [{"const": -1}, {"minimum": 300}]},
+    "rollout-timeout": {"type": "integer", "minimum": 30, "maximum": 1800},
+    "health-url": {"type": "string", "maxLength": 2048},
+    "volumes": {
+      "type": "array", "maxItems": 20,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["volume-id", "mount-path"],
+        "properties": {
+          "volume-id": {"$ref": "#/$defs/id"},
+          "mount-path": {"type": "string", "maxLength": 1024},
+          "size-limit": {"type": "integer", "minimum": 1},
+          "read-only": {"type": "boolean"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9]{3,63}$"},
+    "username": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.@-]*$"}
+  }
+}

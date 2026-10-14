@@ -2,8 +2,8 @@
 
 Run: python3 -m unittest discover -s tests -v
 Requires nginx, envsubst, and openssl; NGINX_BINARY can select a local binary.
-Only fixed filesystem paths and the listen port are rebased into a temporary
-directory, so tests can run without root or modifying the host's Nginx config.
+Only fixed filesystem paths are rebased into a temporary directory; PORT
+selects a free listen port without modifying the host's Nginx config.
 """
 
 import base64
@@ -148,9 +148,7 @@ class Frontend:
         def rebase(text):
             for source, destination in replacements.items():
                 text = text.replace(source, destination)
-            return text.replace("listen      8000;", f"listen      {self.port};").replace(
-                "listen      [::]:8000;", f"listen      [::]:{self.port};"
-            )
+            return text
 
         for name in ("nginx.conf", "nginx-api.conf.template"):
             # nginx.conf remains the authoritative source name in the repo;
@@ -162,10 +160,11 @@ class Frontend:
         bin_directory.mkdir()
         (bin_directory / "nginx").symlink_to(binary)
         self.environment = dict(os.environ, PATH=f"{bin_directory}:{os.environ['PATH']}")
-        for name in ("BACKEND_URL", "BACKEND_MAX_BODY_SIZE_MB", "BACKEND_CONNECT_TIMEOUT_SECONDS",
+        for name in ("PORT", "BACKEND_URL", "BACKEND_MAX_BODY_SIZE_MB", "BACKEND_CONNECT_TIMEOUT_SECONDS",
                      "BACKEND_READ_TIMEOUT_SECONDS", "BACKEND_SEND_TIMEOUT_SECONDS",
                      "BACKEND_STREAMING", "BACKEND_WEBSOCKETS"):
             self.environment.pop(name, None)
+        self.environment["PORT"] = str(self.port)
         self.environment.update(options or {})
         # An unrestricted envsubst would destroy these actual Nginx variables.
         self.environment.update({name: "BROKEN_NGINX_VARIABLE" for name in (
@@ -277,6 +276,38 @@ class FrontendRuntimeTests(unittest.TestCase):
         frontend = self.frontend()
         self.assert_static_behavior(frontend)
         self.assertEqual(frontend.request("/api/example/items?x=1")[2], INDEX)
+
+    def test_unset_port_keeps_existing_port_8000(self):
+        with socket.socket() as listener:
+            try:
+                listener.bind(("127.0.0.1", 8000))
+            except OSError:
+                self.skipTest("Port 8000 is already in use")
+        frontend = Frontend(self.nginx, self.directory)
+        frontend.port = 8000
+        frontend.environment.pop("PORT")
+        self.addCleanup(frontend.stop)
+        frontend.start()
+        self.assert_static_behavior(frontend)
+        config = (frontend.runtime / "nginx.conf").read_text()
+        self.assertIn("listen      8000;", config)
+        self.assertIn("listen      [::]:8000;", config)
+
+    def test_port_changes_on_restart_and_preserves_nginx_variables(self):
+        frontend = self.frontend()
+        previous_port = frontend.port
+        next_port = free_port()
+        while next_port == previous_port:
+            next_port = free_port()
+        frontend.stop()
+        frontend.environment["PORT"] = str(next_port)
+        frontend.port = next_port
+        frontend.start()
+        self.assert_static_behavior(frontend)
+        config = (frontend.runtime / "nginx.conf").read_text()
+        self.assertIn(f"listen      {next_port};", config)
+        self.assertIn("try_files $uri $uri/ /index.html;", config)
+        self.assertNotIn("BROKEN_NGINX_VARIABLE", config)
 
     def test_empty_backend_preserves_existing_api_fallback(self):
         frontend = self.frontend("")
@@ -453,6 +484,8 @@ class FrontendRuntimeTests(unittest.TestCase):
                                  "999999999999999999999", "1; return 200;")]
         invalid += [(name, value) for name in ("BACKEND_STREAMING", "BACKEND_WEBSOCKETS")
                     for value in ("", "true", "ON", "off; return 200;")]
+        invalid += [("PORT", value) for value in ("", "0", "80", "1023", "65536", "08000",
+                    "-5000", "5000.0", "5000\n", "999999999999999999999", "5000; return 200;")]
         for name, value in invalid:
             with self.subTest(name=name, value=value):
                 result = subprocess.run(

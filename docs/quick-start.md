@@ -10,7 +10,7 @@ Choose a runtime, then follow its short guide:
 | `node-backend` | Node APIs or frontends that need a running Node server | [Node setup](../node-backend/service-setup.md) | [`.dockerignore`](../node-backend/.dockerignore) |
 | `node-frontend` | Static sites built by Node and served by Nginx | [Frontend setup](../node-frontend/service-setup.md) | [`.dockerignore`](../node-frontend/.dockerignore) |
 
-Before deploying, the platform team must provision a Tapis pod, allow its image repository, and configure networking and registry access. Your repository needs access to the organization secrets used below.
+Before deploying, the platform team must provision a Tapis pod, allow its image repository, and configure networking and registry access. The optional [platform provisioning workflows](provisioning.md) support this setup. Your repository needs access to the organization secrets used below.
 
 **1. Create `icicle-service.yaml` in your service repository.** This example is for Python; change the runtime fields for Node:
 
