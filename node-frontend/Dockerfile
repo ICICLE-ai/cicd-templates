@@ -112,12 +112,17 @@ RUN --mount=type=cache,target=/root/.npm \
       const hooks = ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"]; \
       const local = value => typeof value === "string" && /^(file:|link:|workspace:|\.?\.?\/)/.test(value); \
       const deps = [p.dependencies, p.devDependencies, p.optionalDependencies]; \
-      const npmrc = fs.existsSync(".npmrc") ? fs.readFileSync(".npmrc", "utf8") : ""; \
-      if (/^\s*(?:[^=]*(?:_authToken|_auth|_password)|username)\s*=/mi.test(npmrc) || /https?:\/\/[^/\s]*@/i.test(npmrc)) { throw new Error("Project .npmrc must contain only nonsecret options; registry credentials require a separate secret mechanism"); } \
+      /* npm parses quoted/escaped/scoped INI keys; inspect its normalized output. */ \
+      /* Keep output captured: config values may contain credentials. JSON hides auth keys. */ \
+      const normalized = require("child_process").spawnSync("npm", ["config", "list"], {encoding: "utf8"}); \
+      if (normalized.status !== 0) throw new Error("Unable to validate project npm configuration"); \
+      const entries = normalized.stdout.split(/\r?\n/).map(line => line.match(/^\s*(?:;\s*)?([^=]+?)\s*=\s*(.*)$/)).filter(Boolean); \
+      const credential = key => /(^|:)(_authToken|_auth|_password|password|username|cert|key|certfile|keyfile)$/i.test(key.trim()); \
+      if (normalized.stdout.includes("(protected)") || entries.some(([, key, value]) => credential(key) || /https?:\/\/[^/\s]*@/i.test(value))) { throw new Error("Project .npmrc must contain only nonsecret options; registry credentials require a separate secret mechanism"); } \
       const needsSource = fs.existsSync("binding.gyp") || p.workspaces || hooks.some(h => (p.scripts || {})[h]) \
         || deps.some(d => Object.values(d || {}).some(local)) \
         || Object.values(lock.packages || {}).some(d => d.link || local(d.resolved)) \
-        || /^\s*(script-shell|cafile|certfile|keyfile)\s*=/m.test(npmrc); \
+        || entries.some(([, key]) => /^(script-shell|cafile)$/i.test(key.trim())); \
       fs.writeFileSync("/tmp/icicle-npm-mode", process.env.NPM_INSTALL_MODE === "full" || needsSource ? "full" : "manifests"); \
     '; \
     if [ "$NPM_INSTALL_MODE" = full ] || [ "$(cat /tmp/icicle-npm-mode)" = full ]; then \

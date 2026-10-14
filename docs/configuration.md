@@ -17,4 +17,6 @@ See the [annotated configuration](../icicle-service-example.yaml) for field exam
 
 Build caches are isolated by calling repository, service, and runtime. Source-only edits reuse dependency layers on the fast path; manifests, lockfiles, and Node `.npmrc` changes invalidate them.
 
+The first build is cold, and cache reuse depends on availability. GitHub stores the Docker layers; package-manager cache mounts are not exported, so a changed lockfile can require fresh downloads on a new runner. See [Docker's cache guidance](https://docs.docker.com/build/ci/github-actions/cache/#cache-mounts).
+
 Node root lifecycle scripts, workspaces, local dependencies, and source-dependent npm configuration select a full-source install, where source changes intentionally reinstall dependencies. `npm-install-mode: full` forces that behavior. Non-secret project `.npmrc` options are supported; embedded registry credentials are rejected, and private npm registry secret injection is not provided. Node backends still run a second `npm ci --omit=dev` after building to preserve production lifecycle behavior.

@@ -152,11 +152,46 @@ class NpmInstallContractTests(unittest.TestCase):
         self.assertEqual((self.source / "package-lock.json").read_text(), lock)
 
     def test_auth_config_rejected_without_printing_credential(self):
-        (self.source / ".npmrc").write_text("//registry.example.test/:_authToken=fixture-do-not-print\n")
-        result = self.command(npm_install_commands("node-backend")[0], self.source, check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("only nonsecret options", result.stderr)
-        self.assertNotIn("fixture-do-not-print", result.stdout + result.stderr)
+        directives = (
+            '//registry.example.test/:_authToken',
+            '"//registry.example.test/:_authToken"',
+            '"//registry.example.test/path;parameter/:_authToken"',
+            '"//registry.example.test/path\\nsegment/:_authToken"',
+            "'//registry.example.test/:_authToken'",
+            '"//registry.example.test/:username"',
+            "'//registry.example.test/:_password'",
+            '"//registry.example.test/:certfile"',
+            '"//registry.example.test/:keyfile"',
+            '"cert"', '"key"',
+        )
+        for runtime in ("node-backend", "node-frontend"):
+            for directive in directives:
+                with self.subTest(runtime=runtime, directive=directive):
+                    (self.source / ".npmrc").write_text(directive + "=fixture-do-not-print\n")
+                    result = self.command(npm_install_commands(runtime)[0], self.source, check=False)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("fixture-do-not-print", result.stdout + result.stderr)
+            with self.subTest(runtime=runtime, directive="credential URL"):
+                (self.source / ".npmrc").write_text('"registry"="https://fixture-do-not-print:fixture-password@registry.example.test/"\n')
+                result = self.command(npm_install_commands(runtime)[0], self.source, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("fixture-do-not-print", result.stdout + result.stderr)
+                self.assertNotIn("fixture-password", result.stdout + result.stderr)
+
+    def test_quoted_nonsecret_options_and_source_paths_are_normalized(self):
+        shutil.rmtree(self.source)
+        shutil.copytree(ROOT / "tests/fixtures/node-backend", self.source)
+        for runtime in ("node-backend", "node-frontend"):
+            for directive, deferred in (('"legacy-peer-deps"=true', False),
+                                        ('"cafile"=./public-ca-bundle', True),
+                                        ("'script-shell'=./custom-shell", True)):
+                with self.subTest(runtime=runtime, directive=directive):
+                    (self.source / ".npmrc").write_text(directive + "\n")
+                    marker = self.directory / "npm-full-source"
+                    marker.unlink(missing_ok=True)
+                    self.command(npm_install_commands(runtime)[0], self.source)
+                    self.assertEqual(marker.exists(), deferred)
+
 
 
 class ImageSmokeTests(unittest.TestCase):

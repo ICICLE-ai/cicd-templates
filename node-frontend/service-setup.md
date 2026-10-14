@@ -84,7 +84,7 @@ Optional proxy settings are runtime environment variables; changes need a restar
 | `BACKEND_STREAMING` | `off` | `on` / `off`; `on` disables response buffering for streams such as SSE. |
 | `BACKEND_WEBSOCKETS` | `off` | `on` / `off`; enables WebSocket upgrades. |
 
-Request buffering stays enabled. Invalid values fail startup. For long-lived streams or WebSockets, set a read timeout suitable for the backend's heartbeat interval.
+Request buffering stays enabled. Invalid values fail startup. For long-lived streams or WebSockets, set a read timeout suitable for the backend's heartbeat interval. The ingress must also support streaming or WebSocket upgrades and allow the required connection duration.
 
 ## Test the image locally
 

@@ -57,6 +57,9 @@ class WorkflowTests(unittest.TestCase):
     def test_required_gate_accepts_only_successful_selected_checks(self):
         config = workflow('test-templates.yaml')
         self.assertEqual(set(config['on']), {'push', 'pull_request', 'workflow_dispatch'})
+        self.assertEqual(config['on']['push'], {'branches': ['main']})
+        self.assertFalse(config['on']['pull_request'])
+        self.assertFalse(config['on']['workflow_dispatch'])
         gate = config['jobs']['checks']
         self.assertEqual(gate['name'], 'Template checks')
         self.assertEqual(gate['if'], 'always()')
