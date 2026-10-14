@@ -16,12 +16,13 @@
     "service-type": {"type": "string", "enum": ["ai", "ci", "domain"]},
     "pod-name": {"type": "string", "pattern": "^[a-z][a-z0-9]{3,63}$", "description": "Must exactly equal service-name."},
     "runtime-type": {"type": "string", "enum": ["python", "node-backend", "node-frontend"]},
-    "runtime-version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"},
+    "runtime-version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$", "description": "MAJOR.MINOR resolves the newest available patch in that minor line; MAJOR.MINOR.PATCH selects an exact release."},
     "build-apt-packages": {"$ref": "#/$defs/packages", "default": []},
     "runtime-apt-packages": {"$ref": "#/$defs/packages", "default": []},
     "health-url": {"type": "string", "format": "uri", "pattern": "^https?://"},
     "rollout-timeout": {"type": "integer", "minimum": 30, "maximum": 1800, "default": 300},
-    "include-dev-dependencies": {"type": "boolean", "default": true}
+    "include-dev-dependencies": {"type": "boolean", "default": true},
+    "npm-install-mode": {"type": "string", "enum": ["auto", "full"], "default": "auto", "description": "Node only. auto caches manifest-only installs when safe; full always installs after copying source."}
   },
   "additionalProperties": true,
   "$defs": {

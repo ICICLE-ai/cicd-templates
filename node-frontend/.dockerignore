@@ -10,6 +10,7 @@
 
 # Node artifacts — node_modules is ALWAYS reinstalled in the container.
 node_modules/
+**/node_modules/
 npm-debug.log*
 yarn-error.log*
 .pnpm-store/
@@ -71,3 +72,7 @@ docs/
 __tests__/
 e2e/
 playwright-report/
+
+# Project .npmrc is supported for nonsecret lock/install options.
+# Credentials must never be committed or embedded in .npmrc.
+.npmrc.*

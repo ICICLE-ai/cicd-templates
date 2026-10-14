@@ -1,0 +1,12 @@
+{
+  "name": "icicle-npm-contract",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "dependencies": {"runtime-dependency": "1.0.0"},
+  "scripts": {
+    "prepare": "node hooks.js prepare",
+    "postinstall": "node hooks.js postinstall",
+    "build": "node hooks.js build"
+  }
+}

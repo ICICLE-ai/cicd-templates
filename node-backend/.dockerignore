@@ -11,6 +11,7 @@
 # Node artifacts — node_modules is ALWAYS reinstalled in the container.
 # Copying a host node_modules in breaks native modules and bloats the context.
 node_modules/
+**/node_modules/
 npm-debug.log*
 yarn-error.log*
 .pnpm-store/
@@ -72,3 +73,7 @@ data/
 *.parquet
 *.h5
 *.hdf5
+
+# Project .npmrc is supported for nonsecret lock/install options.
+# Credentials must never be committed or embedded in .npmrc.
+.npmrc.*

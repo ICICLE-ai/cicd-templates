@@ -17,12 +17,13 @@ SCHEMA_PATHS = {
     for version in (1, 2)
 }
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
-RUNTIME_VERSION = re.compile(r"[0-9]+\.[0-9]+\Z")
+RUNTIME_VERSION = re.compile(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?\Z")
 DEFAULTS = {
     "build-apt-packages": [],
     "runtime-apt-packages": [],
     "rollout-timeout": 300,
     "include-dev-dependencies": True,
+    "npm-install-mode": "auto",
 }
 StrictValidator = validators.extend(
     Draft202012Validator,
@@ -56,6 +57,7 @@ class ValidationResult:
             runtime_apt=" ".join(self.config["runtime-apt-packages"]),
             health_url=self.config.get("health-url", ""),
             include_dev_dependencies=str(self.config["include-dev-dependencies"]).lower(),
+            npm_install_mode=self.config["npm-install-mode"],
         )
         return values
 
@@ -169,6 +171,8 @@ def load_config(path):
         raise ConfigError(f"{field}: {error.message}")
     if version == 2 and config["service-name"] != config["pod-name"]:
         raise ConfigError("schema-version 2 requires service-name to exactly equal pod-name")
+    if config["runtime-type"] == "python" and "npm-install-mode" in config:
+        raise ConfigError("npm-install-mode applies only to Node runtimes")
     if "health-url" in config:
         _check_health_url(config["health-url"])
     for name, value in DEFAULTS.items():

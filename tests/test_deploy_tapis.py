@@ -5,7 +5,9 @@ import copy
 import http.server
 import json
 import threading
+import tempfile
 import unittest
+from unittest import mock
 
 from scripts.deploy_tapis import (
     DeploymentError,
@@ -13,6 +15,10 @@ from scripts.deploy_tapis import (
     deploy,
     health_url,
     matches_health,
+    current_push,
+    read_pod,
+    HTTPConnectionError,
+    main,
 )
 
 SHA = "a" * 40
@@ -94,6 +100,112 @@ class DeploymentTests(unittest.TestCase):
                     self.assertEqual(client.configured[key], POD[key])
                 suffix = "/healthcheck" if runtime == "node-frontend" else "/health"
                 self.assertEqual(result["health_url"], "https://service.pods.example" + suffix)
+
+    def test_superseded_push_skips_immediately_before_mutation(self):
+        client = FakeClient()
+        observed = []
+        def guard():
+            observed.extend(client.calls)
+            return False
+        self.assertEqual(self.run_deploy(client, should_deploy=guard), {"skipped": True})
+        self.assertEqual([call[0] for call in observed], ["GET"])
+        self.assertEqual(client.calls, observed)
+        self.assertFalse(client.restarted)
+
+    def test_transient_initial_and_readback_gets_retry_without_repeating_mutations(self):
+        for failure_index in (0, 2):
+            for failure in (503, HTTPConnectionError("HTTP connection failed")):
+                with self.subTest(failure_index=failure_index, failure=failure):
+                    client = FakeClient()
+                    original = client.request
+                    count = 0
+                    def flaky(method, url, **kwargs):
+                        nonlocal count
+                        count += 1
+                        if count == failure_index + 1:
+                            self.assertEqual(method, "GET")
+                            self.assertFalse(url.endswith("/restart"))
+                            if isinstance(failure, Exception):
+                                raise failure
+                            return failure, b""
+                        return original(method, url, **kwargs)
+                    client.request = flaky
+                    self.run_deploy(client)
+                    self.assertEqual(sum(call[0] == "PUT" for call in client.calls), 1)
+                    self.assertEqual(sum(call[1].endswith("/restart") for call in client.calls), 1)
+
+    def test_mutations_are_not_retried_on_transient_failure(self):
+        for mutation in ("PUT", "restart"):
+            with self.subTest(mutation=mutation):
+                client = FakeClient()
+                original = client.request
+                calls = []
+                def failing(method, url, **kwargs):
+                    if method == mutation or mutation == "restart" and url.endswith("/restart"):
+                        calls.append((method, url))
+                        return 503, b""
+                    return original(method, url, **kwargs)
+                client.request = failing
+                with self.assertRaisesRegex(DeploymentError, "HTTP 503"):
+                    self.run_deploy(client)
+                self.assertEqual(len(calls), 1)
+
+    def test_safe_reads_fail_fast_for_auth_missing_pod_and_invalid_responses(self):
+        for status in (400, 401, 403, 404):
+            with self.subTest(status=status):
+                client = mock.Mock()
+                client.request.return_value = status, b""
+                clock = FakeClock()
+                with self.assertRaisesRegex(DeploymentError, f"HTTP {status}"):
+                    read_pod(client, "https://tapis.example/pod", deadline=30,
+                             clock=clock.now, sleep=clock.sleep)
+                self.assertEqual(client.request.call_count, 1)
+        for body in (b"invalid-json", b'{"status":"success","result":[]}', b'{"status":"error"}'):
+            with self.subTest(body=body):
+                client = mock.Mock()
+                client.request.return_value = 200, body
+                clock = FakeClock()
+                with self.assertRaises(DeploymentError):
+                    read_pod(client, "https://tapis.example/pod", deadline=30,
+                             clock=clock.now, sleep=clock.sleep)
+                self.assertEqual(client.request.call_count, 1)
+
+    def test_safe_read_retries_are_bounded_and_respect_deadline(self):
+        for deadline, expected_calls in ((30, 3), (1, 1)):
+            with self.subTest(deadline=deadline):
+                clock = FakeClock()
+                client = mock.Mock()
+                client.request.return_value = 503, b""
+                with self.assertRaises(DeploymentError):
+                    read_pod(client, "https://tapis.example/pod", deadline=deadline,
+                             clock=clock.now, sleep=clock.sleep)
+                self.assertEqual(client.request.call_count, expected_calls)
+                self.assertLessEqual(clock.value, deadline)
+
+    def test_deadline_prevents_mutation_or_health_probe_after_budget_expires(self):
+        client = FakeClient()
+        clock = FakeClock()
+        def slow_guard():
+            clock.sleep(3)
+            return True
+        with self.assertRaisesRegex(DeploymentError, 'deadline expired before updating'):
+            deploy(client, base_url='https://tapis.example', pod_name='servicepod',
+                   image=IMAGE, runtime='python', build_sha=SHA, timeout=3,
+                   clock=clock.now, sleep=clock.sleep, should_deploy=slow_guard)
+        self.assertEqual([call[0] for call in client.calls], ['GET'])
+        client = FakeClient()
+        clock = FakeClock()
+        original = client.request
+        def slow_poll(method, url, **kwargs):
+            if client.restarted:
+                clock.sleep(3)
+            return original(method, url, **kwargs)
+        client.request = slow_poll
+        with self.assertRaisesRegex(DeploymentError, 'timed out'):
+            deploy(client, base_url='https://tapis.example', pod_name='servicepod',
+                   image=IMAGE, runtime='python', build_sha=SHA, timeout=3,
+                   clock=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertFalse(any(not call[3] for call in client.calls))
 
     def test_old_instance_cannot_pass_even_with_matching_health_sha(self):
         old = dict(POD, image=IMAGE)
@@ -276,6 +388,50 @@ class HTTPBoundaryTests(unittest.TestCase):
             for api in (True, False):
                 self.assertEqual(client.request("GET", base + "/redirect", api=api)[0], 302)
             self.assertEqual([item[0] for item in server.requests], ["/redirect", "/redirect"])
+
+
+class PushFreshnessTests(unittest.TestCase):
+    def test_skipped_run_summary_does_not_claim_verified_deployment(self):
+        with tempfile.NamedTemporaryFile(mode="r+") as summary:
+            with mock.patch.dict('os.environ', {'TAPIS_TOKEN': 'tapis-token', 'GITHUB_STEP_SUMMARY': summary.name}), \
+                    mock.patch('sys.argv', ['deploy_tapis.py', '--pod', 'servicepod', '--image', IMAGE,
+                                          '--runtime', 'python', '--build-sha', SHA]), \
+                    mock.patch('scripts.deploy_tapis.deploy', return_value={'skipped': True}):
+                self.assertEqual(main(), 0)
+            body = summary.read()
+            self.assertIn('Skipped superseded automatic push', body)
+            self.assertNotIn('Verified', body)
+            self.assertNotIn('tapis-token', body)
+
+    def test_latest_push_deploys_stale_push_skips_and_manual_rollback_bypasses_api(self):
+        env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/release/candidate",
+               "GITHUB_REPOSITORY": "example/service", "GH_TOKEN": "read-token"}
+        for head, expected in ((SHA, True), ("b" * 40, False)):
+            with self.subTest(head=head):
+                opener = mock.MagicMock()
+                response = opener.open.return_value.__enter__.return_value
+                response.read.return_value = json.dumps({"object": {"sha": head}}).encode()
+                self.assertEqual(current_push(env, SHA, opener=opener), expected)
+                request = opener.open.call_args.args[0]
+                self.assertTrue(request.full_url.endswith('/git/ref/heads/release%2Fcandidate'))
+                self.assertEqual(request.get_header('Authorization'), 'Bearer read-token')
+                self.assertIsNone(request.get_header('X-tapis-token'))
+        opener = mock.MagicMock()
+        self.assertTrue(current_push({**env, "GITHUB_EVENT_NAME": "workflow_dispatch"}, SHA, opener=opener))
+        opener.open.assert_not_called()
+
+    def test_unverifiable_push_fails_closed_without_disclosing_token_or_body(self):
+        env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main",
+               "GITHUB_REPOSITORY": "example/service", "GH_TOKEN": "read-token"}
+        for body in (b'invalid', b'{}', b'{"object":{"sha":"bad"}}'):
+            with self.subTest(body=body):
+                opener = mock.MagicMock()
+                opener.open.return_value.__enter__.return_value.read.return_value = body
+                with self.assertRaisesRegex(DeploymentError, "Could not verify current branch HEAD") as error:
+                    current_push(env, SHA, opener=opener)
+                self.assertNotIn('read-token', str(error.exception))
+        with self.assertRaisesRegex(DeploymentError, 'GH_TOKEN'):
+            current_push({**env, "GH_TOKEN": ""}, SHA)
 
 
 if __name__ == "__main__":

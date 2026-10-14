@@ -1,5 +1,16 @@
 # Release notes
 
+## 2.1.0
+
+- Reuse dependency layers and repository/service/runtime build caches; preserve source-dependent npm installs and production lifecycle scripts. Node supports `npm-install-mode: auto|full` and non-secret `.npmrc`.
+- Accept exact runtime patch pins alongside existing minor pins; new examples use Python 3.13.16 and Node 24.22.0, with digest-pinned uv 0.12.23 and base images.
+- Add bounded frontend upload/timeouts, optional streaming and WebSockets, and immutable caching only for content-versioned asset filenames. Existing proxy defaults remain compatible.
+- Default GHCR authentication to the calling repository's GitHub token; optional explicit registry credentials must be supplied together.
+- Retry safe deployment reads and skip stale automatic push rollouts; manual dispatch supports an older ref for rollback.
+- Always report **Template checks**, skip heavy builds for documentation-only edits, and maintain exact Actions/Docker pins with Dependabot.
+
+Pin workflows and manual downloads to `v2.1.0`. Existing schema 1/2 configs and `MAJOR.MINOR` runtime values remain supported; upgrade deliberately using the [quick start](docs/quick-start.md).
+
 ## 2.0.0
 
 - Schema 2 requires matching service/image and pod names: 4–64 lowercase letters/digits, starting with a letter. Schema 1 remains supported.

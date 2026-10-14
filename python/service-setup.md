@@ -2,7 +2,7 @@
 
 Use this template for any Python web service managed with uv. Keep your existing framework, build backend, and module layout.
 
-Follow the [shared quick start](../docs/quick-start.md#quick-start), then set `runtime-type: python` and a quoted `runtime-version`, such as `"3.13"`, in `icicle-service.yaml`.
+Follow the [shared quick start](../docs/quick-start.md#quick-start), then set `runtime-type: python` and a quoted `runtime-version`, such as `"3.13.16"`, in `icicle-service.yaml`.
 
 ## Required files
 
@@ -75,11 +75,11 @@ Use your installed distribution name for the local version fallback. CI sets `BU
 Run from your service repository. Match the Python version and dependency setting to your [configuration](../docs/configuration.md#configuration):
 
 ```sh
-TEMPLATES_REF=v2.0.0
+TEMPLATES_REF=v2.1.0
 dockerfile="$(mktemp)"
 curl -fsSL "https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATES_REF/python/Dockerfile" -o "$dockerfile"
 docker build -f "$dockerfile" \
-  --build-arg PYTHON_VERSION=3.13 \
+  --build-arg PYTHON_VERSION=3.13.16 \
   --build-arg INCLUDE_DEV_DEPENDENCIES=false \
   --build-arg BUILD_SHA=local-test \
   --build-arg BUILD_VERSION=0.1.0 \
