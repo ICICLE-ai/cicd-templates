@@ -1,8 +1,6 @@
-# ICICLE service templates
+# Quick start
 
 Shared builds and deployment for Python services, Node servers, and static frontends. The tested release is **`v2.0.0`**.
-
-## Quick start
 
 Choose a runtime, then follow its short guide:
 

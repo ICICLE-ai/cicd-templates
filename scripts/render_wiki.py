@@ -10,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/icicle-ai/cicd-templates"
 WIKI = f"{REPOSITORY}/wiki"
 PAGES = {
-    "docs/quick-start.md": "Home",
+    "docs/home.md": "Home",
+    "docs/quick-start.md": "Quick-start",
     "docs/configuration.md": "Configuration",
     "docs/deployment.md": "Deployment",
     "docs/versioning.md": "Versioning",
@@ -76,7 +77,8 @@ def render(output):
         footer = f"_Source: [{source}]({REPOSITORY}/blob/main/{source}). Edit the repository file; changes on main publish here automatically._"
         rendered[page] = f"{rewrite_links(body, source).rstrip()}\n\n---\n\n{footer}\n"
     navigation = (
-        ("Home", "Quick start"),
+        ("Home", "Home"),
+        ("Quick-start", "Quick start"),
         ("Python", "Python"),
         ("Node-backend", "Node backend"),
         ("Static-frontends", "Static frontends"),
