@@ -147,15 +147,15 @@ Update/restart failures, a failed rollout, stale health SHA, or the verification
 
 ## Versioning
 
-All three Dockerfiles, shared startup/nginx files, validation helpers, and the deployment workflow are versioned together. [`VERSION`](./VERSION) declares the template release version (`2.0.0` for this change). Release tags use `vMAJOR.MINOR.PATCH`; publish each exact tag once and do not move it. A Dockerfile does not have a separate version selector that can drift from its startup files or workflow.
+All three Dockerfiles, shared startup/nginx files, validation helpers, and the deployment workflow are versioned together. [`VERSION`](./VERSION) declares the template release version (`2.0.0`). Release tags use `vMAJOR.MINOR.PATCH`; publish each exact tag once and do not move it. A Dockerfile does not have a separate version selector that can drift from its startup files or workflow.
 
-The current starter `deploy.yaml` follows `@main`, so shared changes are picked up on the next service build. For production, replace it with an **existing reviewed exact release tag or commit**:
+The starter `deploy.yaml` and onboarding examples pin the tested `v2.0.0` release, so new services use the same templates until their pin is deliberately upgraded:
 
 ```yaml
-uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@<reviewed-tag-or-commit>
+uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.0.0
 ```
 
-The reusable workflow fetches Dockerfiles and runtime templates from its own repository and immutable commit (`job.workflow_repository` and `job.workflow_sha`). Use that same ref for manual template downloads. Declaring `2.0.0` in `VERSION` does not publish `v2.0.0`; verify the tag exists before using it. The published `v1` predates the changes documented here.
+The reusable workflow fetches Dockerfiles and runtime templates from its own repository and immutable commit (`job.workflow_repository` and `job.workflow_sha`). Use `v2.0.0` for manual template downloads too. The onboarding commands explicitly pin the downloaded caller because the original starter stored in the immutable `v2.0.0` archive calls `@main`. The published `v1` predates the changes documented here.
 
 These versions have separate purposes:
 
@@ -181,7 +181,7 @@ Anything in this repo affects every ICICLE service that pins to the affected tag
 1. Open a PR against `main`. CI runs typed configuration, deployment-controller, nginx integration, and image smoke tests for relevant changes.
 2. Test against a real service by temporarily pointing its `deploy.yaml` at your branch (`@your-branch-name`).
 3. Merge the PR.
-4. Update `VERSION` and **publish the matching exact release tag** after CI passes. Never move an exact release tag. Document supported runtimes, schema versions, and migrations. Services following `@main` see merged changes on their next build; pinned services upgrade explicitly.
+4. Update `VERSION` and **publish the matching exact release tag** after CI passes, then update the starter and onboarding defaults to that tested release. Never move an exact release tag. Document supported runtimes, schema versions, and migrations. Existing services upgrade their pins explicitly.
 5. Announce in `#icicle-service-support` with what changed and migration notes if any.
 
 ### What can break a service

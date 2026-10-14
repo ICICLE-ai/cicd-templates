@@ -64,19 +64,26 @@ cd your-service
 
 mkdir -p .github/workflows
 
-TEMPLATE_REF=main
+TEMPLATE_REF=v2.0.0
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL $BASE/node-backend/.dockerignore -o .dockerignore
 curl -fsSL $BASE/icicle-service.yaml        -o icicle-service.yaml
 curl -fsSL $BASE/node-backend/entrypoint.sh -o entrypoint.sh
 curl -fsSL $BASE/deploy.yaml                -o .github/workflows/deploy.yaml
 
+# Pin the downloaded caller to the same release as the other templates.
+sed -e "s|deploy-service.yaml@[^[:space:]]*|deploy-service.yaml@${TEMPLATE_REF}|" \
+    -e '/# main follows shared updates/d' \
+    -e '/# release\/commit containing the runtime features your service needs/d' \
+    .github/workflows/deploy.yaml > .github/workflows/deploy.yaml.tmp \
+    && mv .github/workflows/deploy.yaml.tmp .github/workflows/deploy.yaml
+
 chmod +x entrypoint.sh
 ```
 
-The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. The current starter follows `@main`, which changes as the shared repository changes. For production, select a reviewed tag or commit and use it both for `TEMPLATE_REF` above and the reusable workflow's `uses: ...@<ref>` value. CI fetches its Dockerfile and shared runtime files from the immutable commit that runs the reusable workflow. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
+The workflow triggers on pushes to your service's `main` branch and on manual dispatch from the Actions tab. Its reusable workflow is pinned to the tested `v2.0.0` release. When upgrading, update both `TEMPLATE_REF` and the workflow's `uses: ...@ref` to the same reviewed release or commit. CI fetches its Dockerfile and shared runtime files from the immutable commit that runs the reusable workflow. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
 
-For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/main/icicle-service-example.yaml).
+For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/v2.0.0/icicle-service-example.yaml).
 
 ---
 
@@ -336,7 +343,7 @@ Keep `runtime-apt-packages` short; every entry grows your image and its attack s
 Before pushing, confirm your service builds and runs under the official image:
 
 ```bash
-TEMPLATE_REF=main
+TEMPLATE_REF=v2.0.0  # Match the ref in your service's reusable-workflow call.
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL $BASE/node-backend/Dockerfile -o Dockerfile
 

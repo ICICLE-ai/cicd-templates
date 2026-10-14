@@ -67,19 +67,26 @@ cd your-service
 
 mkdir -p .github/workflows
 
-TEMPLATES_REF=main  # Current development version; choose a reviewed release/commit for production.
+TEMPLATES_REF=v2.0.0
 BASE="https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATES_REF"
 curl -fsSL "$BASE/python/.dockerignore" -o .dockerignore
 curl -fsSL "$BASE/icicle-service.yaml"  -o icicle-service.yaml
 curl -fsSL "$BASE/python/entrypoint.sh" -o entrypoint.sh
 curl -fsSL "$BASE/deploy.yaml"          -o .github/workflows/deploy.yaml
 
+# Pin the downloaded caller to the same release as the other templates.
+sed -e "s|deploy-service.yaml@[^[:space:]]*|deploy-service.yaml@${TEMPLATES_REF}|" \
+    -e '/# main follows shared updates/d' \
+    -e '/# release\/commit containing the runtime features your service needs/d' \
+    .github/workflows/deploy.yaml > .github/workflows/deploy.yaml.tmp \
+    && mv .github/workflows/deploy.yaml.tmp .github/workflows/deploy.yaml
+
 chmod +x entrypoint.sh
 ```
 
-The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. The current starter calls the reusable workflow at `@main`, which follows unreleased development changes. For production, select a reviewed release or commit and update both `TEMPLATES_REF` above and the workflow's `uses: ...@ref` to match. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
+The workflow triggers on pushes to your service's `main` branch and on manual dispatch from the Actions tab. Its reusable workflow is pinned to the tested `v2.0.0` release. When upgrading, update both `TEMPLATES_REF` and the workflow's `uses: ...@ref` to the same reviewed release or commit. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
 
-For reference, see the [annotated config example](../icicle-service-example.yaml) from the same template version.
+For reference, see the [annotated config example](https://github.com/icicle-ai/cicd-templates/blob/v2.0.0/icicle-service-example.yaml) from the same template version.
 
 ---
 
@@ -370,7 +377,7 @@ For a service that only needs Python and its dependencies:
 
 ```bash
 # Grab the official Dockerfile — temporary, for local testing only
-TEMPLATES_REF=main  # Match the ref in your service's reusable-workflow call.
+TEMPLATES_REF=v2.0.0  # Match the ref in your service's reusable-workflow call.
 curl -fsSL "https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATES_REF/python/Dockerfile" -o Dockerfile
 
 # Build it, passing the same args CI would pass (empty apt lists)

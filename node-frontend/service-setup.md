@@ -61,18 +61,25 @@ cd your-frontend
 
 mkdir -p .github/workflows
 
-TEMPLATE_REF=main
+TEMPLATE_REF=v2.0.0
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL $BASE/node-frontend/.dockerignore -o .dockerignore
 curl -fsSL $BASE/icicle-service.yaml         -o icicle-service.yaml
 curl -fsSL $BASE/deploy.yaml                 -o .github/workflows/deploy.yaml
+
+# Pin the downloaded caller to the same release as the other templates.
+sed -e "s|deploy-service.yaml@[^[:space:]]*|deploy-service.yaml@${TEMPLATE_REF}|" \
+    -e '/# main follows shared updates/d' \
+    -e '/# release\/commit containing the runtime features your service needs/d' \
+    .github/workflows/deploy.yaml > .github/workflows/deploy.yaml.tmp \
+    && mv .github/workflows/deploy.yaml.tmp .github/workflows/deploy.yaml
 ```
 
 Do not copy or customize the frontend startup script in your service repo; CI supplies the shared version.
 
-The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. The current starter follows `@main`, which changes as the shared repository changes. For production, select a reviewed tag or commit and use it both for `TEMPLATE_REF` above and the reusable workflow's `uses: ...@<ref>` value. CI fetches its Dockerfile and shared runtime files from the immutable commit that runs the reusable workflow. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
+The workflow triggers on pushes to your service's `main` branch and on manual dispatch from the Actions tab. Its reusable workflow is pinned to the tested `v2.0.0` release. When upgrading, update both `TEMPLATE_REF` and the workflow's `uses: ...@ref` to the same reviewed release or commit. CI fetches its Dockerfile and shared runtime files from the immutable commit that runs the reusable workflow. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
 
-For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/main/icicle-service-example.yaml).
+For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/v2.0.0/icicle-service-example.yaml).
 
 ---
 
@@ -255,7 +262,7 @@ Before pushing, confirm your app actually builds and serves under the official i
 The frontend Dockerfile copies three shared runtime files from the build context. Fetch all four files from the **same template commit or release containing this support** — CI does this automatically from the reusable workflow's immutable commit:
 
 ```bash
-TEMPLATE_REF=main  # replace with the same reviewed ref used by your workflow
+TEMPLATE_REF=v2.0.0  # Match the ref in your service's reusable-workflow call.
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL "$BASE/node-frontend/Dockerfile" -o Dockerfile
 curl -fsSL "$BASE/node-frontend/nginx.conf" -o nginx.conf

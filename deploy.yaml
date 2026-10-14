@@ -9,9 +9,8 @@ on:
 
 jobs:
   deploy:
-    # main follows shared updates. For production, replace with a reviewed
-    # release/commit containing the runtime features your service needs.
-    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@main
+    # Use the tested template release. Upgrade this pin deliberately.
+    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.0.0
     secrets:
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
