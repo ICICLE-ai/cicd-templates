@@ -13,7 +13,7 @@ from .deploy_tapis import (APIError, HTTPConnectionError, DeploymentError, NoRed
 # A matching row must still be inspected: GET /images may include rows added
 # by the token owner even when those rows do not authorize the current tenant.
 MAIN_TENANTS = frozenset({"tacc", "icicleai", "icicle", "dev", "astria", "a2cps", "scoped"})
-REPOSITORY = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*\Z")
+REPOSITORY = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*\Z")
 TAG = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\Z")
 
 

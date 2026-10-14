@@ -20,6 +20,8 @@ class ImageApprovalTests(unittest.TestCase):
         return client
 
     def test_repository_tags_share_approval(self):
+        self.assertEqual(image_repository("registry.example/institute--team/my__service:tag"),
+                         "registry.example/institute--team/my__service")
         for tag in ("release", "v2.0.0", "sha-" + "a" * 40 + "-123-1"):
             client = self.client([{"image": REPOSITORY, "tenants": ["icicleai"]}])
             self.assertEqual(ensure_image_allowed(client, base_url="https://icicleai.tapis.io",

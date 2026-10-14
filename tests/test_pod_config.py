@@ -113,6 +113,14 @@ class PodConfigTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         self.assertEqual(load_config(root / "provisioning-example.yaml")["port"], 5000)
 
+    def test_reviewed_catalog_entries_validate_in_ci(self):
+        catalog = Path(__file__).resolve().parents[1] / "provisioning"
+        self.assertFalse(catalog.is_symlink())
+        self.assertTrue(catalog.is_dir())
+        for path in catalog.glob("*.yaml"):
+            with self.subTest(pod=path.stem):
+                load_config(path, catalog_root=catalog)
+
 
 if __name__ == "__main__":
     unittest.main()
