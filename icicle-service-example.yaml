@@ -1,33 +1,34 @@
-schema-version: 1
+schema-version: 2
 
 # ──────────────────────────────────────────────────────────────────────
 # Service Identity
 # ──────────────────────────────────────────────────────────────────────
 
-# Kebab-case service name.
-# Becomes the container image name.
+# Image name and pod ID must match exactly in schema 2.
+# Use 4-64 lowercase letters/digits, starting with a letter; no hyphens.
 #
 # Example image:
-#   ghcr.io/icicle-python-service:0.1.0
+#   ghcr.io/icicle-ai/iciclepythonservice:0.1.0
 #
-service-name: icicle-python-service
+service-name: iciclepythonservice
 
 # Semantic version (semver).
-# Becomes the container image tag.
+# Becomes the version tag. CI deploys a separate unique build tag and records
+# its digest, so repeating this version cannot reuse the previous deployment.
 #
 # Example:
 #   0.1.0
 #
 service-version: 0.1.0
 
-# Team, lab, grant, or umbrella project name.
+# Team, lab, grant, or umbrella project name; recorded as an image label.
 #
 # Example:
 #   icicle-project
 #
 project-name: icicle-project
 
-# Logical service category.
+# Logical service category; recorded as an image label.
 #
 # Allowed values:
 # - ai
@@ -36,12 +37,17 @@ project-name: icicle-project
 #
 service-type: ai
 
-# Target Tapis pod to update during deploy.
+# Existing Tapis pod whose image CI updates, restarts, and verifies.
+# ICICLE requires 4-64 lowercase alphanumeric characters, starting with a
+# letter: ^[a-z][a-z0-9]{3,63}$. No spaces, hyphens, or underscores.
+# Repeat service-name exactly. Schema 1 keeps separate legacy names supported.
+# Its image repository must be permitted by the site's allowlist. CI only
+# changes the image; the platform team owns environment, networking, and resources.
 #
 # Example:
-#   icicle-python-service-prod
+#   iciclepythonservice
 #
-pod-name: icicle-python-service-prod
+pod-name: iciclepythonservice
 
 # ──────────────────────────────────────────────────────────────────────
 # Runtime Configuration
@@ -68,6 +74,18 @@ runtime-type: python
 #   "22.11"   (node-backend, node-frontend)
 #
 runtime-version: "3.13"
+
+# Python only: exclude the dev dependency group from the final image.
+# Declare application dependencies in [project.dependencies]. Existing services
+# that rely on dev dependencies may set true or omit this field (legacy default).
+# Ignored by Node runtimes.
+include-dev-dependencies: false
+
+# Optional rollout settings. Omit health-url to discover the pod's default HTTP
+# endpoint, or its only HTTP endpoint. Use /health for backends, /healthcheck for
+# frontends; the response must expose the current BUILD_SHA. No redirects.
+# health-url: https://iciclepythonservice.pods.icicleai.tapis.io/health
+# rollout-timeout: 300  # integer seconds, 30-1800
 
 # ──────────────────────────────────────────────────────────────────────
 # System Packages

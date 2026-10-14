@@ -125,6 +125,12 @@ RUN --mount=type=cache,target=/root/.npm \
 # ╰───────────╯
 FROM debian:trixie-20260421-slim@sha256:cedb1ef40439206b673ee8b33a46a03a0c9fa90bf3732f54704f99cb061d2c5a AS run-stage
 
+# Shared-template provenance is independent of the application's build version.
+ARG TEMPLATE_VERSION="development"
+ARG TEMPLATE_REVISION="unknown"
+LABEL io.icicle.template.version=${TEMPLATE_VERSION} \
+    io.icicle.template.revision=${TEMPLATE_REVISION}
+
 # libatomic1 is required by the official Node binaries.
 # Runtime apt packages are appended from icicle-service.yaml runtime-apt-packages.
 ARG RUNTIME_APT_PACKAGES=""
@@ -144,6 +150,8 @@ COPY --from=build-stage --chown=icicle:icicle /app /app
 # Build metadata — populated by CI for the /health endpoint.
 ARG BUILD_SHA="unknown"
 ENV BUILD_SHA=${BUILD_SHA}
+ARG BUILD_VERSION=""
+ENV BUILD_VERSION=${BUILD_VERSION}
 
 ENV PATH="/node/bin:$PATH" \
     NODE_ENV=production

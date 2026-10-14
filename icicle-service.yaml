@@ -1,16 +1,27 @@
-schema-version: 1
+schema-version: 2
 
-# Identity
+# Identity: service-name and pod-name MUST be identical in schema 2.
+# Use 4-64 lowercase letters/digits, starting with a letter; no hyphens.
 service-name:
 service-version:
 project-name:
 service-type:
+# Existing Tapis pod ID; repeat service-name exactly.
 pod-name:
 
 # Runtime
 runtime-type:
 runtime-version:
 
+# New Python services should declare runtime dependencies in [project.dependencies].
+# Existing configs that omit this field retain legacy dev dependencies.
+# Ignored by Node runtimes.
+include-dev-dependencies: false
+
 # System packages (leave empty lists if you don't need any)
 build-apt-packages: []
 runtime-apt-packages: []
+
+# Optional deployment overrides; normally discovered from the Tapis pod.
+# health-url: https://your-service.pods.icicleai.tapis.io/health
+# rollout-timeout: 300

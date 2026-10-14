@@ -9,6 +9,9 @@ on:
         required: true
       REGISTRY_PASSWORD:
         required: true
+      HEALTHCHECK_TOKEN:
+        description: Optional bearer token for the application's health endpoint
+        required: false
 
 permissions:
   contents: read
@@ -17,7 +20,6 @@ permissions:
 env:
   REGISTRY: ghcr.io
   TAPIS_BASE_URL: https://icicleai.tapis.io
-  TEMPLATES_BASE_URL: https://raw.githubusercontent.com/ICICLE-ai/cicd-templates/v1
 
 defaults:
   run:
@@ -26,126 +28,89 @@ defaults:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 60
+    # Serialize this service's builds/deployments across branches. Never cancel
+    # a run between changing the pod image and verifying its replacement.
     concurrency:
-      group: deploy-${{ github.ref }}
-      cancel-in-progress: true
+      group: icicle-deploy-${{ github.repository }}
+      cancel-in-progress: false
 
     steps:
       - name: Checkout service repo
         uses: actions/checkout@v4
 
-      - name: Parse icicle-service.yaml
+      - name: Fetch matching shared templates
+        env:
+          TEMPLATES_REPOSITORY: ${{ job.workflow_repository }}
+          TEMPLATES_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$TEMPLATES_REPOSITORY" && test -n "$TEMPLATES_SHA"
+          TEMPLATES_DIR=$(mktemp -d "${RUNNER_TEMP}/icicle-templates.XXXXXX")
+          curl -fsSL --retry 3 --connect-timeout 10 --max-time 120 \
+            "https://github.com/${TEMPLATES_REPOSITORY}/archive/${TEMPLATES_SHA}.tar.gz" \
+            -o "${TEMPLATES_DIR}/source.tar.gz"
+          tar -xzf "${TEMPLATES_DIR}/source.tar.gz" --strip-components=1 -C "$TEMPLATES_DIR"
+          rm "${TEMPLATES_DIR}/source.tar.gz"
+          TEMPLATE_VERSION=$(cat "$TEMPLATES_DIR/VERSION")
+          [[ "$TEMPLATE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "Invalid shared template VERSION" >&2; exit 1; }
+          echo "TEMPLATES_DIR=${TEMPLATES_DIR}" >> "$GITHUB_ENV"
+          echo "TEMPLATE_VERSION=${TEMPLATE_VERSION}" >> "$GITHUB_ENV"
+          printf 'Shared templates: `%s` at `%s`\n\n' "$TEMPLATE_VERSION" "$TEMPLATES_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up validation Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validation dependencies
+        run: python -m pip install -r "$TEMPLATES_DIR/scripts/requirements.txt"
+
+      - name: Validate and parse icicle-service.yaml
         id: config
         run: |
-          set -eu
-
-          CONFIG_FILE=icicle-service.yaml
-
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "::error file=$CONFIG_FILE::icicle-service.yaml is missing from the service repo root"
-            exit 1
-          fi
-
-          {
-            echo "service_name=$(yq -r '.["service-name"]' "$CONFIG_FILE")"
-            echo "service_version=$(yq -r '.["service-version"]' "$CONFIG_FILE")"
-            echo "project_name=$(yq -r '.["project-name"]' "$CONFIG_FILE")"
-            echo "service_type=$(yq -r '.["service-type"]' "$CONFIG_FILE")"
-            echo "pod_name=$(yq -r '.["pod-name"]' "$CONFIG_FILE")"
-            echo "runtime_type=$(yq -r '.["runtime-type"]' "$CONFIG_FILE")"
-            echo "runtime_version=$(yq -r '.["runtime-version"]' "$CONFIG_FILE")"
-            echo "schema_version=$(yq -r '.["schema-version"]' "$CONFIG_FILE")"
-            echo "build_apt=$(yq -r '.["build-apt-packages"] // [] | join(" ")' "$CONFIG_FILE")"
-            echo "runtime_apt=$(yq -r '.["runtime-apt-packages"] // [] | join(" ")' "$CONFIG_FILE")"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Validate icicle-service.yaml
-        run: |
-          set -eu
-
-          fail() {
-            echo "::error file=icicle-service.yaml,title=Validation Error::$1"
-            exit 1
-          }
-
-          [ "${{ steps.config.outputs.schema_version }}" = "1" ] \
-            || fail "schema-version must be 1"
-
-          echo "${{ steps.config.outputs.service_name }}" | grep -Eq '^[a-z][a-z0-9-]*$' \
-            || fail "service-name must be kebab-case: lowercase letters, digits, and hyphens"
-
-          echo "${{ steps.config.outputs.service_version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-            || fail "service-version must be semver, e.g. 0.1.0"
-
-          case "${{ steps.config.outputs.service_type }}" in
-            ai|ci|domain) ;;
-            *)
-              fail "service-type must be one of: ai, ci, domain"
-              ;;
-          esac
-
-          case "${{ steps.config.outputs.runtime_type }}" in
-            python|node-backend|node-frontend) ;;
-            *)
-              fail "runtime-type must be one of: python, node-backend, node-frontend"
-              ;;
-          esac
-
-          echo "${{ steps.config.outputs.runtime_version }}" | grep -Eq '^[0-9]+\.[0-9]+$' \
-            || fail "runtime-version must be MAJOR.MINOR, e.g. 3.13"
-
-          [ -n "${{ steps.config.outputs.pod_name }}" ] \
-            || fail "pod-name is required"
-
-          [ -n "${{ steps.config.outputs.project_name }}" ] \
-            || fail "project-name is required"
+          python "$TEMPLATES_DIR/scripts/validate_config.py" icicle-service.yaml \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Set up Buildtime Args
         id: buildtime
+        env:
+          RUNTIME: ${{ steps.config.outputs.runtime_type }}
+          RUNTIME_VERSION: ${{ steps.config.outputs.runtime_version }}
+          BUILD_APT_PACKAGES: ${{ steps.config.outputs.build_apt }}
+          RUNTIME_APT_PACKAGES: ${{ steps.config.outputs.runtime_apt }}
+          INCLUDE_DEV_DEPENDENCIES: ${{ steps.config.outputs.include_dev_dependencies }}
+          BUILD_SHA: ${{ github.sha }}
+          BUILD_VERSION: ${{ steps.config.outputs.service_version }}
         run: |
           set -eu
-
-          RUNTIME="${{ steps.config.outputs.runtime_type }}"
-
-          echo "dockerfile_url=${TEMPLATES_BASE_URL}/${RUNTIME}/Dockerfile" >> "$GITHUB_OUTPUT"
-
           {
             echo "build_args<<EOF"
-
-            # Every runtime takes its version from icicle-service.yaml as a
-            # build arg. Each Dockerfile installs its interpreter/toolchain from
-            # a pinned upstream source rather than a version-tagged base image,
-            # so the version must be passed in. (node-frontend's version is the
-            # Node used to BUILD the frontend; nothing Node runs in its image.)
             case "$RUNTIME" in
-              python)        echo "PYTHON_VERSION=${{ steps.config.outputs.runtime_version }}" ;;
-              node-backend)  echo "NODE_VERSION=${{ steps.config.outputs.runtime_version }}" ;;
-              node-frontend) echo "NODE_VERSION=${{ steps.config.outputs.runtime_version }}" ;;
+              python)
+                echo "PYTHON_VERSION=${RUNTIME_VERSION}"
+                echo "INCLUDE_DEV_DEPENDENCIES=${INCLUDE_DEV_DEPENDENCIES}"
+                ;;
+              node-backend|node-frontend) echo "NODE_VERSION=${RUNTIME_VERSION}" ;;
             esac
-
-            echo "BUILD_APT_PACKAGES=${{ steps.config.outputs.build_apt }}"
-            echo "RUNTIME_APT_PACKAGES=${{ steps.config.outputs.runtime_apt }}"
-            echo "BUILD_SHA=${{ github.sha }}"
+            echo "BUILD_APT_PACKAGES=${BUILD_APT_PACKAGES}"
+            echo "RUNTIME_APT_PACKAGES=${RUNTIME_APT_PACKAGES}"
+            echo "BUILD_SHA=${BUILD_SHA}"
+            echo "BUILD_VERSION=${BUILD_VERSION}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Fetch official Dockerfile
+      - name: Copy official build sources
+        env:
+          RUNTIME: ${{ steps.config.outputs.runtime_type }}
         run: |
           set -eu
-
-          curl -fsSL \
-            "${{ steps.buildtime.outputs.dockerfile_url }}" \
-            -o Dockerfile
-
-          # node-frontend additionally ships an nginx config that its Dockerfile
-          # COPYs from the build context. Fetch it next to the Dockerfile.
-          # (Overwrites a root-level nginx.conf in the service repo, if any —
-          # documented in node-frontend/service-setup.md.)
-          if [ "${{ steps.config.outputs.runtime_type }}" = "node-frontend" ]; then
-            curl -fsSL \
-              "${TEMPLATES_BASE_URL}/node-frontend/nginx.conf" \
-              -o nginx.conf
+          cp "$TEMPLATES_DIR/$RUNTIME/Dockerfile" Dockerfile
+          if [ "$RUNTIME" = "node-frontend" ]; then
+            cp "$TEMPLATES_DIR/node-frontend/nginx.conf" nginx.conf
+            cp "$TEMPLATES_DIR/node-frontend/nginx-api.conf.template" nginx-api.conf.template
+            cp "$TEMPLATES_DIR/node-frontend/entrypoint.sh" nginx-entrypoint.sh
           fi
 
       - name: Set up Docker Buildx
@@ -158,53 +123,64 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Compute image tag
+      - name: Compute image references
         id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+          SERVICE_NAME: ${{ steps.config.outputs.service_name }}
+          SERVICE_VERSION: ${{ steps.config.outputs.service_version }}
+          BUILD_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -eu
-
-          OWNER_LC="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          echo "tag=${REGISTRY}/${OWNER_LC}/${{ steps.config.outputs.service_name }}:${{ steps.config.outputs.service_version }}" >> "$GITHUB_OUTPUT"
+          OWNER_LC=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          IMAGE="${REGISTRY}/${OWNER_LC}/${SERVICE_NAME}"
+          echo "tag=${IMAGE}:${SERVICE_VERSION}" >> "$GITHUB_OUTPUT"
+          # Tapis checks the repository portion of tagged images against its
+          # allowlist. A unique build tag avoids overwriting the deployed image
+          # while remaining compatible with sites that reject digest references.
+          echo "deploy_tag=${IMAGE}:sha-${BUILD_SHA}-${RUN_ID}-${RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ steps.image.outputs.tag }}
-          build-args: ${{ steps.buildtime.outputs.build_args }}
+          tags: |
+            ${{ steps.image.outputs.tag }}
+            ${{ steps.image.outputs.deploy_tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.config.outputs.service_version }}
+            io.icicle.project=${{ steps.config.outputs.project_name }}
+            io.icicle.service-type=${{ steps.config.outputs.service_type }}
+          build-args: |
+            ${{ steps.buildtime.outputs.build_args }}
+            TEMPLATE_VERSION=${{ env.TEMPLATE_VERSION }}
+            TEMPLATE_REVISION=${{ job.workflow_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trigger Tapis deploy
+      - name: Deploy image and verify rollout
+        env:
+          TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
+          HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
+          POD_NAME: ${{ steps.config.outputs.pod_name }}
+          RUNTIME: ${{ steps.config.outputs.runtime_type }}
+          IMAGE: ${{ steps.image.outputs.deploy_tag }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          BUILD_SHA: ${{ github.sha }}
+          HEALTH_URL: ${{ steps.config.outputs.health_url }}
+          ROLLOUT_TIMEOUT: ${{ steps.config.outputs.rollout_timeout }}
         run: |
           set -eu
-          http_code=$(curl -sS -X GET \
-            -H "X-Tapis-Token: ${{ secrets.TAPIS_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -o response.json -w '%{http_code}' \
-            "${TAPIS_BASE_URL}/v3/pods/${{ steps.config.outputs.pod_name }}/restart")
-          echo "HTTP $http_code"
-          cat response.json  
-          [ "$http_code" -lt 400 ] || exit 1
-
-      - name: Report deploy submitted
-        run: |
-          cat <<EOF
-          ────────────────────────────────────────────────────────────
-          Deploy submitted
-
-            Image:     ${{ steps.image.outputs.tag }}
-            Pod:       ${{ steps.config.outputs.pod_name }}
-            Runtime:   ${{ steps.config.outputs.runtime_type }} ${{ steps.config.outputs.runtime_version }}
-            Build SHA: ${{ github.sha }}
-
-          Verify:
-            curl https://<your-service-url>/health
-            (expect version=${{ steps.config.outputs.service_version }} build_sha=${{ github.sha }})
-
-          Pod status: ${TAPIS_BASE_URL}/v3/pods/${{ steps.config.outputs.pod_name }}
-          Pod logs:   ${TAPIS_BASE_URL}/v3/pods/${{ steps.config.outputs.pod_name }}/logs
-          ────────────────────────────────────────────────────────────
-          EOF
+          printf 'Built image: %s\nDigest: %s\n' "$IMAGE" "$IMAGE_DIGEST"
+          printf 'Image digest: `%s`\n\n' "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          python "$TEMPLATES_DIR/scripts/deploy_tapis.py" \
+            --pod "$POD_NAME" --image "$IMAGE" --runtime "$RUNTIME" \
+            --build-sha "$BUILD_SHA" --health-url "$HEALTH_URL" \
+            --timeout "$ROLLOUT_TIMEOUT"

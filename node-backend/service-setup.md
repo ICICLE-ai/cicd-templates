@@ -14,11 +14,11 @@ Assumes you know Node and your framework. This covers only what ICICLE does diff
 
 You'll need:
 
-- A **public** git repo for your service (empty is fine), under the `icicle-ai` GitHub org. It needs to be public — the shared deploy credentials live at the org level, and GitHub only makes those available to public repos.
+- A service repository authorized to use ICICLE's shared deployment credentials. Coordinate repository access with the platform team.
 - Node and npm installed locally — ideally the same major version you'll deploy.
 - Docker installed locally (for optional local testing in Step 9).
-- **Your service's target Tapis pod.** The pipeline restarts an existing pod; it does not create one. Ask in `#icicle-service-support` if you don't have one yet.
-- **No secrets to configure.** `TAPIS_TOKEN`, `REGISTRY_USERNAME`, and `REGISTRY_PASSWORD` are provisioned once at the org level, which is why the workflow can reference secrets you never created. Don't add your own copies at the repo level.
+- **An existing Tapis pod** with networking and registry access configured. CI updates its image, restarts it, and verifies the build SHA; it does not create the pod. See [deployment prerequisites and verification](../README.md#deployment-and-verification).
+- Access to the [deployment secrets](../README.md#deployment-and-verification) passed by the reusable-workflow caller. The organization normally provides the Tapis and registry credentials.
 
 ---
 
@@ -64,7 +64,8 @@ cd your-service
 
 mkdir -p .github/workflows
 
-BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/v1
+TEMPLATE_REF=main
+BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL $BASE/node-backend/.dockerignore -o .dockerignore
 curl -fsSL $BASE/icicle-service.yaml        -o icicle-service.yaml
 curl -fsSL $BASE/node-backend/entrypoint.sh -o entrypoint.sh
@@ -73,48 +74,44 @@ curl -fsSL $BASE/deploy.yaml                -o .github/workflows/deploy.yaml
 chmod +x entrypoint.sh
 ```
 
-The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. It pins the reusable workflow with a `@ref`; check that the pin matches the template version you bootstrapped from above, and see [Versioning](../README.md#versioning) for how tags work.
+The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. The current starter follows `@main`, which changes as the shared repository changes. For production, select a reviewed tag or commit and use it both for `TEMPLATE_REF` above and the reusable workflow's `uses: ...@<ref>` value. CI fetches its Dockerfile and shared runtime files from the immutable commit that runs the reusable workflow. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
 
-For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/v1/icicle-service-example.yaml).
+For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/main/icicle-service-example.yaml).
 
 ---
 
 ## Step 2 — Fill out `icicle-service.yaml`
 
-The copy you just downloaded is **blank** — every field is empty. This single file tells the pipeline what your service is and where to deploy it.
+Fill in the blank identity and runtime fields in the starter. Keep `schema-version: 2`. This file tells the pipeline what your service is and where to deploy it.
 
 ```yaml
-schema-version: 1
+schema-version: 2
 
 # Identity
-service-name: icicle-node-backend-service   # kebab-case, becomes your image name
-service-version: 0.1.0                      # semver, becomes your image tag
-project-name: icicle-service-project        # your team / grant / umbrella project
-service-type: ai                            # one of: ai | ci | domain
-pod-name: iciclenodebackendservice          # the Tapis pod from "Before you start"
+service-name: iciclenodebackendservice     # image basename; must equal pod-name
+service-version: 0.1.0                     # semver, becomes your image tag
+project-name: icicle-service-project       # your team / grant / umbrella project
+service-type: ai                           # one of: ai | ci | domain
+pod-name: iciclenodebackendservice         # the Tapis pod from "Before you start"
 
 # Runtime
-runtime-type: node-backend                  # not "node" — this exact string
-runtime-version: "22.11"                    # MAJOR.MINOR — MUST be quoted
+runtime-type: node-backend                 # not "node" — this exact string
+runtime-version: "22.11"                   # MAJOR.MINOR — MUST be quoted
 
 # System packages (leave empty unless a dep compiles from source)
 build-apt-packages: []
 runtime-apt-packages: []
 ```
 
-**Things that will bite you if you're not careful:**
+New services must use schema 2: `service-name` and `pod-name` are both `iciclenodebackendservice` in this example. Use 4–64 lowercase letters/digits, starting with a letter, and provision that pod before deploying. Package names, repository names, and `project-name` can differ. Existing schema 1 services can keep their names; see [migration guidance](../README.md#configuration-and-compatibility).
 
-- **Quote `runtime-version`.** Unquoted `22.11` parses as a YAML float and fails validation. A bare major like `"22"` fails too — it must be `MAJOR.MINOR`. The newest patch on that line is resolved at build time from the official Node dist index and verified against the published checksums.
-- **Use an even major.** Odd Node majors (23, 25) are short-lived and have no long-term security support. Stick to LTS lines: 20, 22, 24.
-- **`runtime-type` must be exactly `node-backend`.** The allow-list is `python`, `node-backend`, `node-frontend`.
-- **`service-name` must be kebab-case** — lowercase letters, digits, and hyphens, starting with a letter. It becomes a Docker image name, so Docker's naming rules apply.
-- **`service-version` must be semver** — `MAJOR.MINOR.PATCH`. Bump it every release, or you'll overwrite an existing image tag and won't be able to tell which build is running.
+See the [shared configuration contract](../README.md#shared-service-requirements) for name formats, typed fields, optional deployment settings, and schema compatibility. Choose a supported [Node LTS release](https://nodejs.org/en/about/previous-releases) and quote its `MAJOR.MINOR` version.
 
 ---
 
 ## Step 3 — Set up `package.json`
 
-Only a few fields matter to ICICLE, but one of them causes more failed deploys than anything else in this guide.
+The template reads `package.json` and installs the committed lockfile with npm. Fastify, TypeScript, and ESM below are examples; existing frameworks, JavaScript layouts, and CommonJS projects can keep their conventions.
 
 ```json
 {
@@ -135,7 +132,7 @@ Only a few fields matter to ICICLE, but one of them causes more failed deploys t
 
 ### `"type": "module"`
 
-ICICLE services are ESM. CommonJS still works if you're adopting an existing codebase, but write new services as ESM.
+Use `"type": "module"` for ESM or keep your project's existing CommonJS configuration. Match the emitted JavaScript format to Node's module settings.
 
 ### The `"build"` script is optional
 
@@ -146,23 +143,13 @@ The build stage checks whether you define one:
 
 ### Runtime dependencies go in `dependencies`, not `devDependencies`
 
-**This is the single most common way a Node deploy fails here**, so it's worth understanding the mechanism rather than just the rule.
-
-The build runs in three phases:
-
-1. `npm ci --include=dev` — installs everything, so your build script can run.
-2. `npm run build` — compiles, if you defined the script.
-3. `npm ci --omit=dev` — **reinstalls from scratch with devDependencies stripped out.**
-
-That third step is what ships. So if your server imports a package that's listed in `devDependencies`, the build goes green — phase 1 installed it, phase 2 compiled fine — and then the container crashes on startup with `ERR_MODULE_NOT_FOUND`, because phase 3 deleted it.
-
-The rule of thumb: if your **running server** imports it, it's a `dependency`. If only your **build or tests** touch it, it's a `devDependency`. TypeScript itself is correctly a devDependency — you compile with it, you don't import it at runtime.
+The build installs all dependencies, runs the optional build script, then reinstalls with `npm ci --omit=dev`. Put packages imported by the running server in `dependencies`; compilers and test tools belong in `devDependencies`. A runtime import of an omitted development dependency will fail when the container starts.
 
 ### Commit `package-lock.json`
 
 The build runs `npm ci`, which requires a lockfile and refuses to run if it disagrees with `package.json`. Regenerate it with `npm install` after any dependency change and commit the result. `npm ci` is also what makes your build reproducible — it installs exactly what the lockfile pins, where `npm install` may silently resolve newer versions.
 
-Keep `version` in sync with `service-version` in `icicle-service.yaml`. Nothing enforces this — CI never opens your `package.json` — so drift is silent, and `/health` will report a version that doesn't match the deployed image tag.
+The npm package name can remain hyphenated and need not match `service-name` or `pod-name`. `service-version` is the deployed release version. CI supplies it as `BUILD_VERSION`; package versions can follow your project's own packaging process.
 
 ---
 
@@ -181,10 +168,10 @@ Whatever you choose, the entrypoint path and the actual build output must agree.
 >
 > ```ts
 > import { thing } from "./thing.js";   // correct — even though the file is thing.ts
-> import { thing } from "./thing";      // compiles clean, crashes at runtime
+> import { thing } from "./thing";      // invalid extensionless import for Node ESM
 > ```
 >
-> This is real ESM behavior, not an ICICLE quirk: Node resolves the *emitted* path at runtime, and TypeScript does not rewrite extensions for you. It compiles without complaint and fails on boot with `ERR_MODULE_NOT_FOUND`.
+> Node resolves the emitted path at runtime. TypeScript's `nodenext` resolution checks extension requirements for ESM imports; a different compiler or bundler configuration can still emit code that later fails with `ERR_MODULE_NOT_FOUND`. See the [TypeScript module reference](https://www.typescriptlang.org/docs/handbook/modules/reference.html#node16-node18-node20-nodenext).
 
 Your whole repo is copied into the image, then `node_modules` is replaced by the production-only install. The final image runs with `NODE_ENV=production` set, which many frameworks use to disable dev-only behavior like verbose error pages.
 
@@ -211,39 +198,9 @@ chmod +x entrypoint.sh
 
 The container invokes it as `sh entrypoint.sh`, so **write POSIX shell, not bash.** Arrays, `[[ ]]`, and other bashisms will fail even though your shebang says otherwise — the shebang is bypassed when the file is passed to `sh` directly.
 
-> ### ⚠️ You MUST use `exec` for the final long-running command
->
-> The last line — the one that actually starts your server — **must** begin with `exec`. This is not optional.
->
-> **What `exec` does:** it replaces the shell process with your Node process, so Node runs as PID 1 inside the container instead of as a child of the shell.
->
-> **What breaks without it:**
->
-> - **Signals don't reach your service.** When Tapis stops the container, it sends SIGTERM. Without `exec`, that signal hits `sh`, which typically ignores it. Your server never learns it's being shut down, so in-flight requests are dropped and cleanup handlers never run. After the grace period the runtime SIGKILLs the container.
-> - **Shutdown takes 30+ seconds instead of being near-instant**, because the runtime waits out that grace period every single deploy.
-> - **Zombie processes accumulate**, since `sh` as PID 1 reaps children poorly.
->
-> **The rule:** setup steps (migrations, config checks) go on their own lines above, with no `exec`. Only the final long-running command gets `exec`.
->
-> **Also never launch via `npm run start`.** Even with `exec`, npm forks Node as a child and becomes the same signal-swallowing middleman. Call `node` directly.
->
-> **Wrong:**
-> ```sh
-> node dist/main.js                 # ← no exec, signals never arrive
-> ```
->
-> **Also wrong:**
-> ```sh
-> exec npm run start                # ← npm still forks Node underneath
-> ```
->
-> **Right:**
-> ```sh
-> node dist/migrate.js              # setup step, no exec needed
-> exec node dist/main.js            # ← final command, exec required
-> ```
+End the script with `exec node <your-server-file>` so Node receives container stop signals directly. Run initialization before that command. Avoid an extra process manager such as `npm run start` unless it deliberately handles and forwards signals. See the [shared startup contract](../README.md#shared-service-requirements).
 
-Handling the signal is your job too — Node's default SIGTERM behavior is an immediate exit with no cleanup:
+Handle shutdown in the application within the platform's termination grace period. For example:
 
 ```js
 const shutdown = async (sig) => {
@@ -263,22 +220,39 @@ process.on("SIGINT",  () => void shutdown("SIGINT"));
 await app.listen({ host: "0.0.0.0", port: Number(process.env.PORT ?? 8000) });
 ```
 
-Inside a container, `localhost` means *the container itself* — nothing outside can reach it. Bind to `localhost` or `127.0.0.1` and your pod starts cleanly, reports healthy, and then every request from the outside world hangs.
+Use a port matching the Tapis pod's networking configuration. Binding only to loopback makes the server unreachable from outside its container.
 
-This catches people because plenty of Fastify and Express tutorials hardcode `127.0.0.1`, and it works fine on your laptop. Use `0.0.0.0`, and default the port to `8000`.
+---
+
+## Application API routes used by a frontend
+
+New frontend apps must call their backend with same-origin relative `/api/...` paths. Expose the corresponding application routes **with the `/api` prefix** in this backend:
+
+```js
+app.get("/api/account/session", async (request, reply) => {
+  // Use your application's authenticated session handler here.
+  return getAccountSession(request, reply);
+});
+```
+
+The shared frontend proxy forwards `/api/account/session?refresh=true` unchanged to the backend origin configured in its runtime `BACKEND_URL`. Do not define only `/account/session` and expect nginx to strip `/api`. `BACKEND_URL` belongs in the frontend container's environment; the browser must not receive an absolute backend base URL. See the [frontend runtime setup](../node-frontend/service-setup.md#step-5--config-and-api-urls).
+
+Keep operational endpoints separate: this backend's `/health` remains `/health`, while the frontend image has its own `/healthcheck`. The frontend's API proxy does not expose backend `/health` through `/api/health` automatically. Existing non-frontend API clients can migrate separately; the shared CI workflow does not inspect or enforce application route definitions.
+
+When using the proxy, configure authentication redirects and cookie domains for the frontend origin. Trust forwarded client/host/scheme headers only from known proxies. A cookie explicitly scoped to the backend's hostname will not authenticate browser requests through the frontend hostname.
 
 ---
 
 ## Step 7 — Implement a `/health` endpoint
 
-Every ICICLE service **must** expose `GET /health`. The deploy pipeline is fire-and-forget: it tells Tapis to restart your pod and reports success without checking whether your service came up or which image it's running. `/health` is how you close that loop.
+Expose `GET /health` outside `/api`. CI requires `status: "ok"` and verifies JSON `build_sha` against the commit it built; see the [shared deployment checks](../README.md#deployment-and-verification). The other fields below are useful operational metadata.
 
-### Required response shape
+### Example response
 
 ```json
 {
   "status": "ok",
-  "service": "icicle-node-backend-service",
+  "service": "iciclenodebackendservice",
   "version": "0.1.5",
   "build_sha": "8f3c2a1d4e5b6c7a8f9e0d1c2b3a4f5e6d7c8b9a",
   "timestamp": "2026-04-23T18:30:00Z"
@@ -287,7 +261,7 @@ Every ICICLE service **must** expose `GET /health`. The deploy pipeline is fire-
 
 - **`status`** — `"ok"` when healthy.
 - **`service`** — your service name, matching `icicle-service.yaml`.
-- **`version`** — read from `package.json`, never hardcoded. A hardcoded string drifts and then lies to you.
+- **`version`** — prefer `BUILD_VERSION`, falling back to `package.json` for local runs.
 - **`build_sha`** — read from the `BUILD_SHA` environment variable, which the image sets at build time. CI passes the **full 40-character** SHA.
 - **`timestamp`** — ISO 8601 UTC, proving the response is live and not cached.
 
@@ -301,18 +275,19 @@ import { dirname, resolve } from "node:path";
 // Walk up to the package.json that ships in the image. Adjust the number of
 // ".." segments to match how deep your compiled output sits.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const version = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version ?? "unknown";
+const version = process.env.BUILD_VERSION ||
+  JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version || "unknown";
 
 app.get("/health", async () => ({
   status: "ok",
-  service: "icicle-node-backend-service",
+  service: "iciclenodebackendservice",
   version,
   build_sha: process.env.BUILD_SHA ?? "unknown",
   timestamp: new Date().toISOString(),
 }));
 ```
 
-If `/health` reports `"version": "unknown"`, that relative path is wrong for your build depth — that's the usual cause.
+If `/health` reports `"version": "unknown"`, neither `BUILD_VERSION` nor the package fallback supplied a version. An incorrect path instead makes `readFileSync` throw an error such as `ENOENT` during startup; adjust it for your build depth.
 
 ### Keep `/health` dependency-free
 
@@ -332,16 +307,12 @@ app.get("/ready", async (req, reply) => {
 
 ## Step 8 — System packages (only if you need them)
 
-Most services need none — leave both lists empty and move on.
-
-You only need them when a dependency compiles native code at install time (`node-gyp`). Most popular native modules ship prebuilt linux-x64 binaries, so **try empty lists first** and only add packages if the build actually fails with a gyp error.
-
-If it does, the split matters:
+Leave the lists empty unless your service needs system packages, such as native-module compilers, shared libraries, or external commands. Keep build tools separate from runtime requirements:
 
 - **`build-apt-packages`** are installed in the build stage only and **do not ship** in your final image. This is for compilers and headers: `build-essential`, `python3`, `pkg-config`, and `-dev` packages.
 - **`runtime-apt-packages`** are installed in the final image and **do ship**. This is for the shared libraries your compiled module loads at runtime.
 
-The pattern is always the same — `-dev` package in build, non-`dev` package in runtime. For `sharp` (image processing):
+A common pairing uses headers during build and a shared library at runtime. For example, when compiling against system libvips:
 
 ```yaml
 build-apt-packages:
@@ -349,10 +320,10 @@ build-apt-packages:
   - libvips-dev        # headers, needed to compile
 
 runtime-apt-packages:
-  - libvips42          # the shared library loaded at runtime
+  - libvips42t64       # Debian trixie runtime library
 ```
 
-`libatomic1` is already in the runtime image — don't list it.
+This image uses Debian trixie; match package names to that release (for example, [libvips42t64](https://packages.debian.org/trixie/libvips42t64)). `libatomic1` is already in the runtime image — don't list it.
 
 **`ca-certificates`, `curl`, and `xz-utils` are not.** Those are installed in the build stage only and do not ship. In practice this rarely matters: Node bundles its own root certificates, so HTTPS calls from Node work without the system trust store. Add `ca-certificates` only if something outside Node needs it — a native TLS library, or shelling out to `curl` from your entrypoint.
 
@@ -365,7 +336,8 @@ Keep `runtime-apt-packages` short; every entry grows your image and its attack s
 Before pushing, confirm your service builds and runs under the official image:
 
 ```bash
-BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/v1
+TEMPLATE_REF=main
+BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL $BASE/node-backend/Dockerfile -o Dockerfile
 
 docker build \
@@ -373,9 +345,9 @@ docker build \
   --build-arg BUILD_APT_PACKAGES="" \
   --build-arg RUNTIME_APT_PACKAGES="" \
   --build-arg BUILD_SHA=local-test \
-  -t icicle-node-backend-service:test .
+  -t iciclenodebackendservice:test .
 
-docker run --rm -p 8000:8000 icicle-node-backend-service:test
+docker run --rm -p 8000:8000 iciclenodebackendservice:test
 ```
 
 In another terminal:
@@ -390,58 +362,55 @@ Clean up with `rm Dockerfile` when you're done. Leaving it is harmless — CI fe
 A faster check that skips Docker entirely, useful while iterating:
 
 ```bash
-npm ci && npm run build && node dist/main.js
+npm ci
+npm run build --if-present
+sh entrypoint.sh
 ```
 
 Use `npm ci`, not `npm install` — it's what CI runs, and it will catch lockfile drift that `npm install` papers over.
 
-> ### ⚠️ Do not modify the Dockerfile
->
-> It's maintained by `#icicle-service-leads` and is the source of truth for how your service gets built. CI **always overwrites** it at build time — editing locally will not change your deploys, and committing a modified copy will not either.
->
-> If it doesn't meet your needs, see [When you need something the template doesn't support](#when-you-need-something-the-template-doesnt-support) at the end of this doc.
+The downloaded Dockerfile is for local testing. Persistent template changes belong in this shared repository because CI fetches its own copy.
 
 ---
 
 ## Step 10 — Commit and push
 
 ```bash
-git add -A
+git status --short
+# Stage the service files you intend to commit.
+git diff --cached
 git commit -m "ICICLE service setup"
 git push
 ```
 
-Use `git add -A` rather than listing paths by hand — it's easy to forget `tsconfig.json` or a config file, and the failure mode is a CI build that breaks with no local symptom. Make sure your `.gitignore` excludes `node_modules/` and your build output first.
+Review staged changes before committing; keep local environments, dependencies, generated downloads, and secrets out of the commit.
 
-CI picks it up automatically. Open the **Actions** tab to watch the run. If something's wrong with `icicle-service.yaml`, it fails at the validation step with a readable message. `package.json` is not validated — errors there surface later, as a build failure or a bad `/health` response.
+CI picks it up automatically. Open the **Actions** tab to watch the run. If something's wrong with `icicle-service.yaml`, it fails at the validation step with a readable message. The build reads `package.json` and npm checks dependency installation. CI then verifies the running health SHA; application tests remain responsible for route and response correctness.
 
 ---
 
 ## Verify the deploy landed
 
-The pipeline does **not** confirm your pod came up on the right image. Check it yourself:
+CI verifies pod startup and the expected health `build_sha`. For a manual check:
 
 ```bash
 curl https://<your-service-url>/health
 ```
 
-Confirm two things:
+Confirm `build_sha` matches the commit you pushed. CI passes the full 40-character SHA, so compare against `git rev-parse HEAD` — not the shortened SHA the GitHub UI shows.
 
-- `version` matches the `service-version` you just deployed.
-- `build_sha` matches the commit you pushed. CI passes the full 40-character SHA, so compare against `git rev-parse HEAD` — not the shortened SHA the GitHub UI shows.
+A stale SHA fails CI's rollout check. Inspect the workflow diagnostics and pod logs for an image pull, startup, networking, or health-response problem.
 
-If either is stale, your pod hasn't picked up the new image yet. Wait 30–60 seconds and retry. If it stays stale for more than a few minutes, check the pod logs URL printed at the end of the workflow run and ping `#icicle-service-support`.
-
-The workflow's final step prints your Tapis pod status and log URLs. Bookmark them.
+See [deployment diagnostics](../README.md#deployment-and-verification) for the Tapis status and logs endpoints.
 
 ---
 
 ## Day-to-day: updating your service
 
 1. Change your code.
-2. Bump `service-version` in `icicle-service.yaml` (and `version` in `package.json`, to keep them honest).
+2. Set the release's `service-version` in `icicle-service.yaml`.
 3. If you changed dependencies, commit the updated `package-lock.json`.
-4. Commit and push to `main`.
+4. Commit and push to `main`; CI builds, updates the pod image, and verifies rollout.
 5. Check `/health` against `git rev-parse HEAD`.
 
 ---
@@ -449,7 +418,7 @@ The workflow's final step prints your Tapis pod status and log URLs. Bookmark th
 ## Common problems
 
 **Deploy fails immediately, before any build, complaining about a secret**
-Your repo probably isn't public, or isn't under the `icicle-ai` org — org-level credentials don't reach it in either case. Don't paste in your own secrets; ping `#icicle-service-support`.
+Check that your repo is covered by the ICICLE organization's secret access policy and that its workflow forwards the required secrets. Don't paste in your own secrets; ping `#icicle-service-support`.
 
 **Build fails: `package.json and package-lock.json are not in sync`**
 You edited dependencies by hand. Run `npm install` and commit the updated lockfile.
@@ -458,10 +427,16 @@ You edited dependencies by hand. Run `npm install` and commit the updated lockfi
 That minor line doesn't exist upstream. Check [nodejs.org/dist](https://nodejs.org/dist/index.json) for valid `MAJOR.MINOR` values.
 
 **Validation fails: "runtime-version must be MAJOR.MINOR"**
-You forgot to quote it. Use `runtime-version: "22.11"`. Unquoted, YAML parses it as a float, which fails the check — and for a version like `22.10` it also silently drops the trailing zero.
+Use a quoted `MAJOR.MINOR` value such as `runtime-version: "22.11"`; a bare major or full patch version is not accepted. Quoting also prevents numeric parsing from changing `22.10` to `22.1`.
+
+**Validation fails for `pod-name`**
+Use 4–64 lowercase ASCII alphanumeric characters, starting with a letter (`^[a-z][a-z0-9]{3,63}$`). With schema 2, `service-name` must equal that same name. Copy the provisioned pod ID exactly; changing this file does not rename a pod. Schema 1 retains its legacy service-name rules.
 
 **Validation fails: "runtime-type must be one of..."**
 Use `node-backend` exactly. Not `node`, not `nodejs`, not `backend`.
+
+**Frontend API requests return 404 from this backend**
+Confirm the backend route includes `/api`, for example `/api/account/session`. The frontend proxy preserves that prefix and the query string. Keep backend health checks on `/health`.
 
 **Container crashes on boot: `ERR_MODULE_NOT_FOUND`**
 Either a runtime import lives in `devDependencies` (see Step 3), or a relative ESM import is missing its `.js` extension (see Step 4).
@@ -476,27 +451,21 @@ You bound to `localhost`. Use `0.0.0.0` — see Step 6.
 Your entrypoint is missing `exec`, or you're launching through `npm run`. See Step 5.
 
 **`/health` returns `"version": "unknown"`**
-The relative path to `package.json` in your health handler is wrong for your build depth.
+`BUILD_VERSION` is empty and the package fallback has no version field. A wrong fallback file path instead causes an error such as `ENOENT` during startup; check the health handler's path against its compiled location.
 
 **`/health` returns `"build_sha": "unknown"`**
 Expected for a local build unless you passed `--build-arg BUILD_SHA=...`. In production, ping `#icicle-service-support`.
 
 **`/health` returns a version one behind what you pushed**
-Your pod hasn't rolled yet. Wait 30–60 seconds; if it stays stale, check the pod logs.
+Check `build_sha` first: CI verifies that value, while older apps may report a package version. Prefer `BUILD_VERSION` in the version field. A stale SHA fails verification; inspect rollout and routing diagnostics.
 
 ---
 
-## When you need something the template doesn't support
+## Changing the shared setup
 
-The template handles the common case: an npm-installed Node service with an optional build step, started by a single entrypoint. If you need something outside that — a different package manager, a monorepo or workspace layout, GPU support, a custom base image — we'd rather hear about it than have you fork the template.
+CI replaces downloaded Dockerfiles and runtime templates with this repository's sources. Propose persistent build or startup changes here, and use service-owned entrypoints and configuration for application initialization. See the [shared contract](../README.md#shared-service-requirements) before choosing a different framework, layout, or build tool; examples in this guide are not extra platform requirements.
 
-**Open an issue** in [icicle-ai/cicd-templates](https://github.com/icicle-ai/cicd-templates/issues) describing what you need and why, and ping **`#icicle-service-support`** on Slack.
-
-**Please do not:**
-
-- Fork the Dockerfile and commit a modified copy (CI overwrites it anyway).
-- Add a parallel build pipeline (your service stops getting platform updates).
-- Work around the template with creative entrypoint hacks (if it's hacky, file an issue — we probably want to fix it properly).
+For unsupported needs, open an [issue](https://github.com/icicle-ai/cicd-templates/issues) or contact `#icicle-service-support`.
 
 ---
 

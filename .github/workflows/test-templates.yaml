@@ -1,0 +1,64 @@
+name: Test shared templates
+
+on:
+  push:
+    paths:
+      - node-frontend/**
+      - python/**
+      - node-backend/**
+      - icicle-service*.yaml
+      - tests/**
+      - scripts/**
+      - schema/**
+      - VERSION
+      - .github/workflows/deploy-service.yaml
+      - .github/workflows/test-templates.yaml
+  pull_request:
+    paths:
+      - node-frontend/**
+      - python/**
+      - node-backend/**
+      - icicle-service*.yaml
+      - tests/**
+      - scripts/**
+      - schema/**
+      - VERSION
+      - .github/workflows/deploy-service.yaml
+      - .github/workflows/test-templates.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx gettext-base openssl
+          python -m pip install -r scripts/requirements.txt
+      - name: Test configuration, deployment, and frontend runtime
+        run: |
+          sh -n node-frontend/entrypoint.sh
+          python -m unittest discover -s tests -v
+
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and exercise all three runtime images
+        env:
+          REQUIRE_DOCKER: '1'
+        run: python tests/test_images.py -v

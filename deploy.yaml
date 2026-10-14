@@ -9,8 +9,12 @@ on:
 
 jobs:
   deploy:
+    # main follows shared updates. For production, replace with a reviewed
+    # release/commit containing the runtime features your service needs.
     uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@main
     secrets:
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      # Optional, only if the health endpoint requires a bearer token.
+      HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}

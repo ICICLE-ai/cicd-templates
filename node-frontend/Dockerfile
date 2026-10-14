@@ -123,12 +123,19 @@ RUN test -d /app/dist && [ -n "$(ls -A /app/dist)" ] \
 # other ICICLE templates, with nginx installed from Debian.
 FROM debian:trixie-20260421-slim@sha256:cedb1ef40439206b673ee8b33a46a03a0c9fa90bf3732f54704f99cb061d2c5a AS run-stage
 
+# Shared-template provenance is independent of the application's build version.
+ARG TEMPLATE_VERSION="development"
+ARG TEMPLATE_REVISION="unknown"
+LABEL io.icicle.template.version=${TEMPLATE_VERSION} \
+    io.icicle.template.revision=${TEMPLATE_REVISION}
+
 ARG RUNTIME_APT_PACKAGES=""
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
       nginx \
       ca-certificates \
+      gettext-base \
       $RUNTIME_APT_PACKAGES; \
     rm -rf /var/lib/apt/lists/*
 
@@ -148,13 +155,10 @@ RUN set -eux; \
     ln -sf /dev/stdout /var/log/nginx/access.log; \
     ln -sf /dev/stderr /var/log/nginx/error.log
 
-# The ICICLE nginx config: listens on 8000, SPA fallback routing, a /healthcheck
-# location, sensible cache headers. This file IS part of the template — unlike
-# the Dockerfile it's meant to be reasonable for every frontend as-is.
-# CI fetches it next to the Dockerfile into the build-context root (see the
-# reusable workflow's "Fetch official Dockerfile" step), so it's referenced
-# here as a plain context-root path.
-COPY nginx.conf /etc/nginx/nginx.conf
+# CI fetches these shared sources into the service build-context root. The
+# entrypoint generates writable configs under /tmp/nginx at container startup.
+COPY nginx.conf nginx-api.conf.template /etc/nginx/templates/
+COPY nginx-entrypoint.sh /usr/local/bin/icicle-frontend-entrypoint.sh
 
 # The built static site.
 COPY --from=build-stage --chown=icicle:icicle /app/dist /app/site
@@ -170,6 +174,6 @@ WORKDIR /app
 
 EXPOSE 8000
 
-# nginx handles SIGTERM/SIGQUIT correctly as PID 1. `daemon off` keeps it in
-# the foreground so it IS PID 1 rather than forking away.
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+# SIGQUIT lets nginx finish active requests when the container is stopped.
+STOPSIGNAL SIGQUIT
+ENTRYPOINT ["sh", "/usr/local/bin/icicle-frontend-entrypoint.sh"]

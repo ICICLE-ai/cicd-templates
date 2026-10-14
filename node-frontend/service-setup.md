@@ -12,11 +12,11 @@ Wrong template if your frontend needs a live Node server (Next.js, Remix, or Nux
 
 You'll need:
 
-- A **public** git repo for your service (empty is fine), under the `icicle-ai` GitHub org. It needs to be public — the shared deploy credentials live at the org level, and GitHub only makes those available to public repos.
+- A service repository authorized to use ICICLE's shared deployment credentials. Coordinate repository access with the platform team.
 - Node and npm installed locally — ideally the same major version you'll deploy.
 - Docker installed locally (for optional local testing in Step 6).
-- **Your service's target Tapis pod.** The pipeline restarts an existing pod; it does not create one. Ask in `#icicle-service-support` if you don't have one yet.
-- **No secrets to configure.** `TAPIS_TOKEN`, `REGISTRY_USERNAME`, and `REGISTRY_PASSWORD` are provisioned once at the org level, which is why the workflow can reference secrets you never created. Don't add your own copies at the repo level.
+- **An existing Tapis pod** with networking and registry access configured. CI updates its image, restarts it, and verifies the build SHA; it does not create the pod. See [deployment prerequisites and verification](../README.md#deployment-and-verification).
+- Access to the [deployment secrets](../README.md#deployment-and-verification) passed by the reusable-workflow caller. The organization normally provides the Tapis and registry credentials.
 
 ---
 
@@ -40,7 +40,7 @@ your-frontend/
     └── App.tsx
 ```
 
-Notice what's **not** there: no `Dockerfile`, no `nginx.conf`, and no `entrypoint.sh`. CI fetches the first two at build time, and a static site has no start command — nginx is the image's process.
+The service repo does not need a `Dockerfile`, nginx templates, or a startup script. CI fetches the shared Dockerfile, `nginx.conf`, `nginx-api.conf.template`, and `entrypoint.sh` from this repository. It saves the startup script as `nginx-entrypoint.sh` to avoid overwriting a service-owned `entrypoint.sh`. The shared script initializes nginx before nginx becomes the container's main process.
 
 ---
 
@@ -61,51 +61,47 @@ cd your-frontend
 
 mkdir -p .github/workflows
 
-BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/v1
+TEMPLATE_REF=main
+BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL $BASE/node-frontend/.dockerignore -o .dockerignore
 curl -fsSL $BASE/icicle-service.yaml         -o icicle-service.yaml
 curl -fsSL $BASE/deploy.yaml                 -o .github/workflows/deploy.yaml
 ```
 
-There's no `entrypoint.sh` to copy — that's Python and Node-backend only.
+Do not copy or customize the frontend startup script in your service repo; CI supplies the shared version.
 
-The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. It pins the reusable workflow with a `@ref`; check that the pin matches the template version you bootstrapped from above, and see [Versioning](../README.md#versioning) for how tags work.
+The workflow you just copied triggers on pushes to `main` and on manual dispatch from the Actions tab. The current starter follows `@main`, which changes as the shared repository changes. For production, select a reviewed tag or commit and use it both for `TEMPLATE_REF` above and the reusable workflow's `uses: ...@<ref>` value. CI fetches its Dockerfile and shared runtime files from the immutable commit that runs the reusable workflow. The Dockerfile, shared runtime files, and workflow share one template release; `schema-version` and your application's `service-version` are separate. See [Versioning](../README.md#versioning).
 
-For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/v1/icicle-service-example.yaml).
+For reference: an annotated example of every config field is at [`icicle-service-example.yaml`](https://github.com/icicle-ai/cicd-templates/blob/main/icicle-service-example.yaml).
 
 ---
 
 ## Step 2 — Fill out `icicle-service.yaml`
 
-The copy you just downloaded is **blank** — every field is empty. This single file tells the pipeline what your service is and where to deploy it.
+Fill in the blank identity and runtime fields in the starter. Keep `schema-version: 2`. This file tells the pipeline what your service is and where to deploy it.
 
 ```yaml
-schema-version: 1
+schema-version: 2
 
 # Identity
-service-name: icicle-node-frontend-service   # kebab-case, becomes your image name
-service-version: 0.1.0                       # semver, becomes your image tag
-project-name: icicle-service-project         # your team / grant / umbrella project
-service-type: ai                             # one of: ai | ci | domain
-pod-name: iciclenodefrontendservice          # the Tapis pod from "Before you start"
+service-name: iciclenodefrontendservice    # image basename; must equal pod-name
+service-version: 0.1.0                     # semver, becomes your image tag
+project-name: icicle-service-project       # your team / grant / umbrella project
+service-type: ai                           # one of: ai | ci | domain
+pod-name: iciclenodefrontendservice        # the Tapis pod from "Before you start"
 
 # Runtime
-runtime-type: node-frontend                  # not "node" — this exact string
-runtime-version: "22.11"                     # MAJOR.MINOR — MUST be quoted
+runtime-type: node-frontend                # not "node" — this exact string
+runtime-version: "22.11"                   # MAJOR.MINOR — MUST be quoted
 
 # System packages (leave empty unless a native dep fails to build)
 build-apt-packages: []
 runtime-apt-packages: []
 ```
 
-**Things that will bite you if you're not careful:**
+New services must use schema 2: `service-name` and `pod-name` are both `iciclenodefrontendservice` in this example. Use 4–64 lowercase letters/digits, starting with a letter, and provision that pod before deploying. Package names, repository names, and `project-name` can differ. Existing schema 1 services can keep their names; see [migration guidance](../README.md#configuration-and-compatibility).
 
-- **Quote `runtime-version`.** Unquoted `22.11` parses as a YAML float and fails validation. A bare major like `"22"` fails too — it must be `MAJOR.MINOR`, which is resolved to the newest patch on that line at build time from the Node dist index.
-- **Use an even major.** Odd Node majors have no long-term support line.
-- **`runtime-version` is the *build* Node version.** Nothing Node runs in production, so this only affects the toolchain that compiles your bundle. Pick the version your app builds cleanly under locally.
-- **`runtime-type` must be exactly `node-frontend`.** The allow-list is `python`, `node-backend`, `node-frontend`.
-- **`service-name` must be kebab-case** — lowercase letters, digits, and hyphens, starting with a letter. It becomes a Docker image name.
-- **`service-version` must be semver** — `MAJOR.MINOR.PATCH`. Bump it every release.
+See the [shared configuration contract](../README.md#shared-service-requirements) for name formats, typed fields, optional deployment settings, and schema compatibility. Here `runtime-version` selects the Node version used to build the bundle; Node is absent from the final image. Choose a supported [Node LTS release](https://nodejs.org/en/about/previous-releases) compatible with your build toolchain.
 
 ---
 
@@ -126,17 +122,19 @@ ls -d dist build out 2>/dev/null   # which one showed up?
 | **Vue CLI** | `dist/` | Nothing |
 | **Create React App** | `build/` | Set the script to `"build": "BUILD_PATH=dist react-scripts build"` |
 | **SvelteKit** (static adapter) | `build/` | Point `pages` and `assets` at `dist` in your adapter config |
-| **Angular** | `dist/<project-name>/` | Set `outputPath` to plain `dist` in `angular.json` |
+| **Angular** | Depends on builder; often `dist/<project-name>/browser/` | Set browser output directly to `dist/`; with the application builder, use `outputPath: { "base": "dist", "browser": "" }` in `angular.json` |
+
+For Angular, check your builder's [output path configuration](https://angular.dev/reference/configs/workspace-config#output-path-configuration). Confirm that `dist/index.html` exists, not only `dist/browser/index.html`.
 
 **Why it has to be `dist/` specifically:** the image doesn't create that folder — *your* build script does. The Dockerfile just runs `npm run build` and then looks for `dist/`, so the name is the only thing connecting your bundler's output to the web server. Get it wrong and the build stops with `build produced no /app/dist directory` rather than deploying a site that 404s every request.
 
-Can't reasonably hit `dist/`? Open an issue rather than hacking a postbuild rename — we'd rather add an output-dir option than have every service invent its own workaround.
+The final build output must be in `dist/`; configure the bundler or a build step to place the completed site there. Source folders and frontend frameworks remain application choices.
 
 ---
 
 ## Step 4 — Check your `package.json`
 
-Only three things matter to ICICLE:
+A minimal package manifest could look like this:
 
 ```json
 {
@@ -150,10 +148,10 @@ Only three things matter to ICICLE:
 ```
 
 - **`"build"` script is required.** The build stage fails early and explicitly if it's missing. (This differs from `node-backend`, where a build script is optional.)
-- **`"private": true`** — these are deployed apps, not published packages.
+- **`"private": true`** is optional; it prevents accidental npm publication and is not checked by CI.
 - **Commit `package-lock.json`.** The build runs `npm ci`, which requires a lockfile and fails if it's out of sync with `package.json`. Run `npm install` to regenerate it after any dependency change.
 
-Keep `version` in sync with `service-version` in `icicle-service.yaml`. Nothing enforces this — CI never opens your `package.json` to compare — so drift is silent.
+The npm package name can remain hyphenated and need not match `service-name` or `pod-name`. `service-version` controls the image release tag. Your frontend package version can follow your application's own release process; the health endpoint identifies the deployed commit.
 
 Build dependencies can live in `devDependencies`; everything is installed with `npm ci --include=dev` and nothing from `node_modules` ships in the final image. This is the opposite of `node-backend`, where a runtime import of a devDependency crashes on boot.
 
@@ -161,33 +159,74 @@ Build dependencies can live in `devDependencies`; everything is installed with `
 
 ## Step 5 — Config and API URLs
 
-This is the part that's genuinely different from a backend service.
-
-A static build has **no runtime environment.** By the time nginx serves your app, it's just files — there is no process to read an env var. Everything is frozen at build time.
-
-### Secrets do not exist here
-
-Anything in `VITE_*`, `REACT_APP_*`, or `VUE_APP_*` is **compiled into the public bundle that every visitor downloads.** Fine for a public API base URL. Never for a key, token, or password. Authenticated calls belong behind a backend that holds the credential server-side.
-
-If you take one thing from this guide, take this one.
+The browser bundle is static, but the shared startup script reads `BACKEND_URL` when the container starts. This lets one built frontend and container image serve different backend environments.
 
 ### Calling your API
 
-**Simplest pattern:** call your API on a **same-origin relative path** (`/api/...`) and let the ingress route it. No env var, no CORS preflight, no per-environment rebuild.
+**All new frontend apps must call their backend using same-origin relative `/api/...` paths.** This is the required application convention, even though the shared runtime keeps proxying optional for existing containers:
 
-If your frontend and API are on different origins, you'll need `Access-Control-Allow-Origin` set on the backend — the nginx config here doesn't proxy or inject CORS headers.
+```typescript
+export const fetchAccountSession = async (): Promise<AccountSession> => {
+  const response = await apiFetch("/api/account/session");
+  return response.json();
+};
+```
+
+Configure `apiFetch` to keep these requests relative to the frontend origin. Do not prepend a backend hostname, hardcode an absolute backend URL, or compile `BACKEND_URL` into the browser bundle. The backend must expose the matching `/api/...` routes because nginx preserves that prefix. Enforce this convention in application code review and tests; the shared CI workflow does not inspect frontend request code.
+
+For a new frontend using this shared proxy, set the container's runtime environment to an HTTP or HTTPS origin:
+
+```text
+BACKEND_URL=http://backend:3000
+```
+
+For example, `/api/account/session?refresh=true` reaches `http://backend:3000/api/account/session?refresh=true`. The complete API path, query string, request method, body, and normal request headers are forwarded. `/api` and `/api/...` are proxied; paths such as `/apiary` still use static/SPA routing.
+
+`BACKEND_URL` accepts a hostname or IP address with an optional port and one optional trailing slash. It must not contain a path, credentials, query string, or fragment. Invalid values fail startup. Leave it **unset or empty** to disable proxying and preserve the previous static/SPA behavior, including `/api/...` falling back to the SPA if it does not match a file. This compatibility mode also supports deployments where existing ingress routing already handles same-origin API requests; it does not relax the required `/api/...` convention for new apps.
+
+### Configure the deployed pod
+
+The reusable workflow updates the image of an **existing Tapis pod** and verifies rollout. Runtime environment settings remain platform-managed. Add `BACKEND_URL` to that pod's `environment_variables`, retaining its other variables, then restart it. For example, the environment portion of the pod definition could be:
+
+```json
+{
+  "environment_variables": {
+    "BACKEND_URL": "https://your-backend-networking-host"
+  }
+}
+```
+
+Merge this setting into the existing environment map. Use the Tapis pod update operation (`PUT /v3/pods/<pod-id>`) and then restart (`GET /v3/pods/<pod-id>/restart`), or the equivalent platform interface. Keep the image's default entrypoint and command so the shared startup initialization runs. See [Tapis pod management](https://tapis.readthedocs.io/en/latest/technical/pods.html#managing-pods).
+
+Use an address reachable **from the frontend container**. `localhost` points to the frontend container itself. Docker's `backend:3000` example only works when that backend name and port are accessible on a shared Docker network. For Tapis, use a platform-approved address, typically the backend's returned HTTPS networking URL on port 443; the backend container's internal port is not necessarily exposed at that hostname. See [Tapis pod networking](https://tapis.readthedocs.io/en/latest/technical/pods.html#pod-networking).
+
+HTTPS upstreams use SNI, the upstream hostname as `Host`, and certificate verification against the image's system CA bundle. A private CA must be installed in that trust store before using an upstream signed by it. The backend hostname must resolve when nginx validates the configuration at startup. This setup resolves it at startup, so restart the frontend if its resolved address changes; prefer a stable service address.
+
+Nginx sends `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto`. For TLS terminated by an ingress, it accepts the ingress's `X-Forwarded-Proto` only when its value is `http` or `https`. The ingress must overwrite client-supplied values, and backend applications should trust forwarded headers only from known proxies. The upstream `Host` remains the backend's host so HTTPS routing works.
+
+Redirects back to the configured backend origin are rewritten to relative frontend paths. Configure backend authentication and cookies for the frontend origin; a cookie explicitly scoped to the backend's domain will not work through the frontend proxy.
+
+Initial adoption requires building an image with these shared templates. After that, changing `BACKEND_URL` requires only a pod environment update and restart of the same image; no frontend build or image rebuild is needed. Removing or emptying the setting and restarting disables proxying.
+
+### Browser configuration and secrets
+
+Anything in `VITE_*`, `REACT_APP_*`, or `VUE_APP_*` is **compiled into the public bundle that every visitor downloads**. Keep keys, tokens, and passwords in the backend. `BACKEND_URL` configures nginx and is not a browser build variable.
+
+Same-origin `/api/...` calls through nginx do not need cross-origin browser access. Legacy apps that still call a backend origin directly need their existing CORS configuration until they migrate. New apps must use the relative-path convention above.
 
 ### Serving from a sub-path
 
-If your app isn't at the domain root (say it's served under `/my-app/`), tell your bundler, or every asset 404s:
+The shared nginx configuration serves the site at `/`. To expose it under a prefix such as `/my-app/`, first arrange for the platform ingress to strip that prefix before forwarding frontend requests to nginx. Then configure the bundler's public base and the client-side router's base for the external prefix:
 
 - **Vite:** `base: "/my-app/"`
 - **CRA:** `"homepage": "/my-app"` in `package.json`
 - **Vue CLI:** `publicPath: "/my-app/"`
 
+API requests still use origin-root `/api/...`, not `/my-app/api/...`. The ingress must route `/api/...` on that same origin to the frontend proxy or the existing API route. A bundler base setting alone does not configure ingress or nginx routing.
+
 ### Client-side routing
 
-Already works. The nginx config falls back to `index.html` for any path that isn't a real file, so React Router / Vue Router deep links and hard refreshes resolve correctly. Nothing to configure.
+The nginx config falls back to `index.html` for unmatched frontend paths, so React Router / Vue Router deep links and hard refreshes resolve correctly. When proxying is enabled, `/api` and `/api/...` go to the backend instead of the SPA.
 
 ---
 
@@ -195,14 +234,17 @@ Already works. The nginx config falls back to `index.html` for any path that isn
 
 **Nothing to do here.** You don't write or commit an nginx config; CI fetches the template's. This is listed so you don't waste time reimplementing something you already have:
 
-- **SPA fallback** — unmatched paths serve `index.html` (Step 5).
+- **SPA fallback** — unmatched frontend paths serve `index.html` (Step 5).
+- **Optional API proxy** — runtime `BACKEND_URL` routes `/api` and `/api/...` to the backend without stripping the prefix.
 - **Immutable asset caching** — `/assets/*` gets a one-year `public, immutable` cache header. Safe because bundlers fingerprint those filenames.
 - **`index.html` is never cached** — `no-store`, so clients don't hold a stale document that points at asset filenames the server no longer has.
 - **gzip** for text, JS, JSON, SVG, and wasm.
 - **`/healthcheck`** — returns the build SHA (Step 8).
 - **Listens on `:8000`, runs as the non-root `icicle` user** (uid 999).
 
-Need a proxy rule, a CSP header, or different cache behavior? **Don't fork the config** — CI overwrites it at build time, so a local copy does nothing. Open an issue instead.
+At startup, the shared entrypoint writes configuration under `/tmp/nginx`, writable by `icicle`. It substitutes only `BACKEND_URL` in the API template, preserving nginx variables such as `$uri`, validates the result with `nginx -t`, and uses `exec` to start nginx. Existing build SHA initialization and log permissions remain in place. The image uses `STOPSIGNAL SIGQUIT` for graceful shutdown; the deployment must allow active requests time to finish.
+
+Need additional proxy rules, a CSP header, or different cache behavior? **Don't fork the config** — CI overwrites fetched copies at build time. Update the authoritative `node-frontend/` templates in this repository instead.
 
 ---
 
@@ -210,21 +252,24 @@ Need a proxy rule, a CSP header, or different cache behavior? **Don't fork the c
 
 Before pushing, confirm your app actually builds and serves under the official image.
 
-Unlike the other templates, the frontend Dockerfile `COPY`s an `nginx.conf` from the build context, so you need **both** files locally — CI does this for you, but a manual build doesn't:
+The frontend Dockerfile copies three shared runtime files from the build context. Fetch all four files from the **same template commit or release containing this support** — CI does this automatically from the reusable workflow's immutable commit:
 
 ```bash
-BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/v1
-curl -fsSL $BASE/node-frontend/Dockerfile -o Dockerfile
-curl -fsSL $BASE/node-frontend/nginx.conf -o nginx.conf
+TEMPLATE_REF=main  # replace with the same reviewed ref used by your workflow
+BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
+curl -fsSL "$BASE/node-frontend/Dockerfile" -o Dockerfile
+curl -fsSL "$BASE/node-frontend/nginx.conf" -o nginx.conf
+curl -fsSL "$BASE/node-frontend/nginx-api.conf.template" -o nginx-api.conf.template
+curl -fsSL "$BASE/node-frontend/entrypoint.sh" -o nginx-entrypoint.sh
 
 docker build \
   --build-arg NODE_VERSION=22.11 \
   --build-arg BUILD_APT_PACKAGES="" \
   --build-arg RUNTIME_APT_PACKAGES="" \
   --build-arg BUILD_SHA=local-test \
-  -t icicle-node-frontend-service:test .
+  -t iciclenodefrontendservice:test .
 
-docker run --rm -p 8000:8000 icicle-node-frontend-service:test
+docker run --rm -p 8000:8000 iciclenodefrontendservice:test
 ```
 
 In another terminal:
@@ -235,33 +280,50 @@ curl -I localhost:8000/index.html   # expect: Cache-Control: no-store
 open http://localhost:8000          # click around, refresh on a deep link
 ```
 
-Clean up when you're done — `rm Dockerfile nginx.conf`. Leaving them is harmless (CI fetches its own copies and ignores yours), but they'll confuse the next person reading your repo.
+To enable the API proxy, start your backend with the network name `backend` on a shared Docker network, then run the **same frontend image** with the setting:
 
-> ### ⚠️ Do not modify the Dockerfile or nginx.conf
->
-> Both are maintained by `#icicle-service-leads` and are the source of truth for how your service gets built and served. CI **always overwrites** them at build time — editing locally will not change your deploys, and committing a modified copy will not either.
->
-> If the templates don't meet your needs, see [When you need something the template doesn't support](#when-you-need-something-the-template-doesnt-support) at the end of this doc.
+```bash
+docker network create app-network  # once, before starting both containers
+# Start your backend on app-network as backend, listening on 0.0.0.0:3000.
+docker run --rm --network app-network -p 8000:8000 \
+  -e BACKEND_URL=http://backend:3000 iciclenodefrontendservice:test
+```
+
+Stop the earlier frontend container before reusing port 8000. Request a real backend endpoint through the frontend, including a query string, and check the backend receives the complete `/api/...` path:
+
+```bash
+curl 'http://localhost:8000/api/account/session?refresh=true'
+curl localhost:8000/healthcheck
+curl -I localhost:8000/index.html
+```
+
+Use the same cookies, authorization headers, or request body that your backend normally expects. Backend errors are returned as API responses, not replaced by the SPA.
+
+Clean up the downloaded files when you're done: `rm Dockerfile nginx.conf nginx-api.conf.template nginx-entrypoint.sh`. These are CI inputs from the shared repository, not service-owned configuration.
+
+Persistent Dockerfile, nginx, and startup changes belong in this shared repository because CI replaces downloaded copies. Application code remains in the service repo.
 
 ---
 
 ## Step 7 — Commit and push
 
 ```bash
-git add -A
+git status --short
+# Stage the service files you intend to commit.
+git diff --cached
 git commit -m "ICICLE frontend setup"
 git push
 ```
 
-Use `git add -A` rather than listing paths by hand. Frontend repos carry toolchain config — `vite.config.ts`, `tsconfig.json`, `public/` — that's easy to leave out of an explicit list, and the failure mode is a CI build that breaks with no local symptom. Your scaffold's `.gitignore` already keeps `node_modules/` and `dist/` out; if you don't have one, add it before running this.
+Review staged changes before committing; keep local environments, dependencies, generated downloads, and secrets out of the commit.
 
-CI picks it up automatically. Open the **Actions** tab in your service repo to watch the run. If something's wrong with `icicle-service.yaml`, it fails at the validation step with a readable message. `package.json` is not validated — errors there surface later, as a build failure.
+CI picks it up automatically. Open the **Actions** tab in your service repo to watch the run. If something's wrong with `icicle-service.yaml`, it fails at the validation step with a readable message. The Dockerfile checks for the required build script, and npm validates dependency installation during the build; there is no separate application manifest validation step.
 
 ---
 
 ## Step 8 — Verify the deploy landed
 
-The pipeline is **fire-and-forget.** It tells Tapis to restart your pod and reports success — it does not wait for the pod to come up or confirm the right image is serving. Closing that loop is on you.
+CI updates the pod image and waits for the expected build to respond. The [shared deployment checks](../README.md#deployment-and-verification) describe discovery, timeouts, and diagnostics. You can also inspect the health endpoint manually:
 
 ```bash
 curl https://<your-service-url>/healthcheck
@@ -277,9 +339,9 @@ git rev-parse HEAD
 
 They should match exactly. CI passes the full SHA, so don't compare against the 7-character short form the GitHub UI displays.
 
-If it's stale, your pod hasn't picked up the new image yet — wait 30–60 seconds and retry. If it stays stale for more than a few minutes, check the pod logs URL printed at the end of the workflow run, and ping `#icicle-service-support`.
+A stale SHA fails CI's rollout check. Inspect the workflow diagnostics and pod logs for an image pull, startup, networking, or health-response problem.
 
-The workflow's final step also prints your Tapis pod status and log URLs. Bookmark them.
+See [deployment diagnostics](../README.md#deployment-and-verification) for the Tapis status and logs endpoints.
 
 ---
 
@@ -288,19 +350,19 @@ The workflow's final step also prints your Tapis pod status and log URLs. Bookma
 Once setup is done, the normal flow is:
 
 1. Change your code.
-2. Bump `service-version` in `icicle-service.yaml` (and `version` in `package.json`, to keep them honest).
+2. Set the release's `service-version` in `icicle-service.yaml`.
 3. If you changed dependencies, commit the updated `package-lock.json`.
-4. Commit and push to `main`.
+4. Commit and push to `main`; CI builds, updates the pod image, and verifies rollout.
 5. Check `/healthcheck` against `git rev-parse HEAD`.
 
-CI handles the rest.
+Runtime environment and networking changes remain separate from image deployment.
 
 ---
 
 ## Common problems
 
 **Blank page, console shows 404s on `/assets/*.js`**
-Your app is served from a sub-path but was built with a base of `/`. Set `base` / `homepage` / `publicPath` — see Step 5.
+Check the bundler base, client router base, and ingress prefix rewriting together. The shared nginx serves the site at `/`; a public sub-path needs the ingress setup described in Step 5.
 
 **Build fails: `package.json has no "build" script`**
 Add one. A static frontend must define it — see Step 4.
@@ -312,16 +374,25 @@ Your build outputs somewhere else. See Step 3 — CRA needs `BUILD_PATH=dist`.
 `package.json` and `package-lock.json` disagree. Run `npm install` locally and commit the updated lockfile.
 
 **Validation fails: "runtime-version must be MAJOR.MINOR"**
-You forgot to quote it. Change `runtime-version: 22.11` to `runtime-version: "22.11"`. Unquoted, YAML parses it as a float, which fails the check — and for a version like `22.10` it also silently drops the trailing zero.
+Use a quoted `MAJOR.MINOR` value such as `runtime-version: "22.11"`; a bare major or full patch version is not accepted. Quoting also prevents numeric parsing from changing `22.10` to `22.1`.
+
+**Validation fails for `pod-name`**
+Use 4–64 lowercase ASCII alphanumeric characters, starting with a letter (`^[a-z][a-z0-9]{3,63}$`). With schema 2, `service-name` must equal that same name. Copy the provisioned pod ID exactly; changing this file does not rename a pod. Schema 1 retains its legacy service-name rules.
 
 **Validation fails: "runtime-type must be one of..."**
 Use `node-frontend` exactly. Not `node`, not `static-web`, not `frontend`.
 
 **Deploy fails immediately, before any build, complaining about a secret**
-Your repo probably isn't public, or isn't under the `icicle-ai` org — org-level credentials don't reach it in either case. Don't paste in your own secrets; ping `#icicle-service-support`.
+Check that your repo is covered by the ICICLE organization's secret access policy and that its workflow forwards the required secrets. Don't paste in your own secrets; ping `#icicle-service-support`.
 
 **API calls fail with CORS errors**
-Your frontend and API are on different origins. Use a relative `/api` path plus ingress routing, or set `Access-Control-Allow-Origin` on the backend. The nginx config here won't do it for you.
+Check that `apiFetch` uses a relative `/api/...` URL without a backend base URL, and that runtime `BACKEND_URL` or existing ingress routing handles it. New apps must use this same-origin convention. Preserve legacy CORS settings only while migrating an existing app away from direct cross-origin calls.
+
+**`/api/...` returns the frontend HTML**
+`BACKEND_URL` is unset or empty, or the deployment bypasses the shared entrypoint. Set it in the pod environment, preserve the image's startup command, and restart. An older image needs one rebuild to adopt this support.
+
+**Startup fails or the API returns 502**
+Check the pod logs, backend hostname resolution, network access, and port. For HTTPS, check the certificate hostname, certificate chain, and system CA trust. Use the backend's actual Tapis networking URL rather than assuming its internal port is externally reachable.
 
 **"My API key is visible in the browser"**
 It's a build-time env var, so it's public by definition. Move it behind a backend — see Step 5.
@@ -330,21 +401,15 @@ It's a build-time env var, so it's public by definition. Move it behind a backen
 A locally-built image got pushed to the registry. Rebuild through CI.
 
 **`/healthcheck` returns a SHA that's one commit behind**
-Your pod hasn't rolled yet. Wait 30–60 seconds. If it stays stale, the image may have failed to pull — check the pod logs URL.
+Check the rollout diagnostics, image reference, and pod logs. CI fails verification when the expected build SHA is not serving before the timeout.
 
 ---
 
-## When you need something the template doesn't support
+## Changing the shared setup
 
-The template handles the common case: an npm-built SPA that outputs to `dist/`, served as static files. If you need something outside that — a proxy rule, a CSP header, a non-`dist` output directory, a different package manager — we'd rather hear about it than have you fork the template.
+CI replaces downloaded Dockerfiles and runtime templates with this repository's sources. Propose persistent build or startup changes here, and use service-owned entrypoints and configuration for application initialization. See the [shared contract](../README.md#shared-service-requirements) before choosing a different framework, layout, or build tool; examples in this guide are not extra platform requirements.
 
-**Open an issue** in [icicle-ai/cicd-templates](https://github.com/icicle-ai/cicd-templates/issues) describing what you need and why, and ping **`#icicle-service-support`** on Slack.
-
-**Please do not:**
-
-- Commit your own `Dockerfile` or `nginx.conf` (CI overwrites both anyway).
-- Add a parallel build pipeline (your service stops getting platform updates).
-- Work around the template with postbuild rename hacks (if it's hacky, file an issue — we probably want to fix it properly).
+For unsupported needs, open an [issue](https://github.com/icicle-ai/cicd-templates/issues) or contact `#icicle-service-support`.
 
 ---
 
