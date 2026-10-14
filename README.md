@@ -2,6 +2,8 @@
 
 Shared builds and deployment for Python services, Node servers, and static frontends. The tested release is **`v2.0.0`**.
 
+Read these guides as separate pages in the [Wiki](https://github.com/ICICLE-ai/cicd-templates/wiki).
+
 ## Quick start
 
 Choose a runtime, then follow its short guide:
@@ -121,5 +123,7 @@ REQUIRE_DOCKER=1 python tests/test_images.py -v
 Use Python 3.9+, Nginx with HTTP SSL support, `envsubst`, and OpenSSL. `NGINX_BINARY` can select a local Nginx binary. Image tests require Docker with BuildKit and network access. CI runs both suites; mocked Tapis tests do not replace a live rollout check.
 
 Update `VERSION` and the changelog in the release commit. After checks pass, publish its exact `vMAJOR.MINOR.PATCH` tag, then update onboarding defaults. Never move a published exact tag. Existing services upgrade explicitly.
+
+The Wiki is generated from these Markdown files. To refresh it, clone `https://github.com/ICICLE-ai/cicd-templates.wiki.git`, run `python3 scripts/render_wiki.py /path/to/wiki-checkout` from this repository, then review, commit, and push the Wiki changes. Edit documentation here so future updates preserve it.
 
 For help, contact `#icicle-service-support` or open an [issue](https://github.com/icicle-ai/cicd-templates/issues).
