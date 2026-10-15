@@ -215,9 +215,9 @@ class ImageSmokeTests(unittest.TestCase):
             for name in ("Dockerfile", ".dockerignore"):
                 shutil.copyfile(ROOT / runtime / name, context / name)
             (context / "icicle-service.yaml").write_text(
-                "schema-version: 2\nservice-name: smokeservice\n"
+                "schema-version: 3\nservice-name: smokeservice\n"
                 f"service-version: {BUILD_VERSION}\nproject-name: smoke\n"
-                f"service-type: ai\npod-name: smokeservice\nruntime-type: {runtime}\n"
+                f"service-type: ai\nruntime-type: {runtime}\n"
                 f'runtime-version: "{PYTHON_VERSION if runtime == "python" else NODE_VERSION}"\n'
                 "build-apt-packages: []\nruntime-apt-packages: []\n"
             )

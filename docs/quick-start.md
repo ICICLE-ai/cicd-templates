@@ -2,6 +2,8 @@
 
 Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.1.0`**.
 
+The unreleased [schema 3 example](../icicle-service-v3-example.yaml) removes `pod-name`. Keep using schema 2 with the published pin below until a release includes schema 3 support.
+
 Choose a runtime, then follow its short guide:
 
 | Runtime | Use it for | Guide | Copy into your repo |

@@ -1,0 +1,16 @@
+# Unreleased schema 3 example. Requires a template ref that supports schema 3;
+# the published v2.1.0 workflow supports only schemas 1 and 2.
+schema-version: 3
+
+# Both the image name and deployment pod ID. No separate pod-name field.
+# Use 4-64 lowercase letters/digits, starting with a letter; no reserved names.
+service-name: myservice
+service-version: 0.1.0
+project-name: myproject
+service-type: ai
+
+runtime-type: python
+runtime-version: "3.13.16"
+include-dev-dependencies: false
+build-apt-packages: []
+runtime-apt-packages: []

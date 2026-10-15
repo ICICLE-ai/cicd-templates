@@ -59,6 +59,14 @@ class ServiceConfigTests(unittest.TestCase):
         self.path.write_text(yaml.safe_dump(value))
         return value
 
+    def write_v3_config(self, changes=None):
+        value = copy.deepcopy(BASELINE)
+        del value["pod-name"]
+        value.update({"schema-version": 3, "service-name": "exampleservice"})
+        value.update(changes or {})
+        self.path.write_text(yaml.safe_dump(value))
+        return value
+
     def assert_rejected(self, field, value):
         self.write_config({field: value})
         with self.assertRaises(ConfigError):
@@ -70,13 +78,18 @@ class ServiceConfigTests(unittest.TestCase):
             capture_output=True, text=True, timeout=5, check=False,
         )
 
-    def test_schemas_are_valid_and_annotated_v2_example_passes(self):
+    def test_schemas_and_stable_and_unreleased_examples_pass(self):
         for version, schema_path in SCHEMA_PATHS.items():
             with self.subTest(version=version):
                 Draft202012Validator.check_schema(json.loads(schema_path.read_text()))
-        result = load_config(ROOT / "icicle-service-example.yaml")
-        self.assertEqual(result.config["schema-version"], 2)
-        self.assertEqual(result.config["service-name"], result.config["pod-name"])
+        stable = load_config(ROOT / "icicle-service-example.yaml")
+        self.assertEqual(stable.config["schema-version"], 2)
+        self.assertEqual(stable.config["service-name"], stable.config["pod-name"])
+        result = load_config(ROOT / "icicle-service-v3-example.yaml")
+        self.assertEqual(result.config["schema-version"], 3)
+        self.assertEqual(result.config["service-name"], result.github_outputs()["pod_name"])
+        self.assertNotIn("pod-name", result.config)
+        self.assertNotIn("pod-name", yaml.safe_load((ROOT / "icicle-service-v3-example.yaml").read_text()))
 
     def test_v1_still_accepts_different_service_and_pod_names(self):
         self.write_config({"service-name": "existing-service", "pod-name": "existingpod"})
@@ -118,18 +131,92 @@ class ServiceConfigTests(unittest.TestCase):
                 self.assertNotEqual(self.cli("--github-output", output).returncode, 0)
                 self.assertFalse(output.exists())
 
+    def test_v3_derives_pod_name_for_all_runtimes_and_boundaries(self):
+        output = self.directory / "github-output"
+        for runtime, runtime_version in (("python", "3.13"), ("node-backend", "22.11"),
+                                         ("node-frontend", "22.11")):
+            for name in ("abcd", "a123", "exampleservice", "a" * 64):
+                with self.subTest(runtime=runtime, name=name):
+                    source = self.write_v3_config({"service-name": name, "runtime-type": runtime,
+                                                   "runtime-version": runtime_version})
+                    output.unlink(missing_ok=True)
+                    result = self.cli("--json", "--github-output", output)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    normalized = json.loads(result.stdout)
+                    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    self.assertNotIn("pod-name", source)
+                    self.assertNotIn("pod-name", normalized)
+                    self.assertEqual(values["schema_version"], "3")
+                    self.assertEqual(values["service_name"], name)
+                    self.assertEqual(values["pod_name"], name)
+                    self.assertEqual(values["runtime_type"], runtime)
+                    self.assertEqual(values["rollout_timeout"], "300")
+                    self.assertEqual(self.path.read_text(), yaml.safe_dump(source))
+                    # --json remains a valid service document, not a different
+                    # format containing the forbidden internal pod-name field.
+                    Draft202012Validator(json.loads(SCHEMA_PATHS[3].read_text())).validate(normalized)
+                    if runtime != "python":
+                        self.path.write_text(result.stdout)
+                        self.assertEqual(load_config(self.path).github_outputs(), values)
+
+    def test_v3_rejects_invalid_service_names_before_outputs(self):
+        output = self.directory / "github-output"
+        for name in (None, True, 1234, [], {}, "", "a", "abc", "1abc", "a" * 65,
+                     "Example", "examplePod", "front-end", "front_end", "front.end",
+                     "front/end", "front:end", "front end", " front", "front ",
+                     "front\tend", "front\nend", "front\n", "front\r", "front$end",
+                     "éxample", "前端服务", "ｆｒｏｎｔ", "fron😀t"):
+            with self.subTest(service_name=name):
+                self.write_v3_config({"service-name": name})
+                result = self.cli("--github-output", output)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertFalse(output.exists())
+
+    def test_v3_rejects_reserved_pod_names(self):
+        for name in ("catalog", "snapshots", "volumes", "admin", "catalogs", "snapshot",
+                     "volume", "image", "images", "template", "templates", "stack",
+                     "stacks", "nodes", "metrics", "secrets"):
+            with self.subTest(service_name=name):
+                self.write_v3_config({"service-name": name})
+                with self.assertRaises(ConfigError):
+                    load_config(self.path)
+
+    def test_v3_requires_service_name_and_rejects_any_explicit_pod_name(self):
+        output = self.directory / "github-output"
+        for pod in ("exampleservice", "anotherpod", "", None, True, 1234, [], {}):
+            with self.subTest(pod_name=pod):
+                self.write_v3_config({"pod-name": pod})
+                result = self.cli("--json", "--github-output", output)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("remove pod-name", result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertFalse(output.exists())
+        source = self.write_v3_config()
+        del source["service-name"]
+        self.path.write_text(yaml.safe_dump(source))
+        result = self.cli("--github-output", output)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("service-name", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(output.exists())
+
     def test_schema_version_selection_is_strict_and_explicit(self):
-        for version in (None, True, False, "1", "2", 1.0, 2.0, 0, 3, 99, "../v1"):
+        for version in (None, True, False, "1", "2", "3", 1.0, 2.0, 3.0, 0, 4, 99, "../v1"):
             with self.subTest(version=version):
                 self.write_config({"schema-version": version})
-                with self.assertRaisesRegex(ConfigError, "schema-version.*1 or 2"):
+                with self.assertRaisesRegex(ConfigError, "schema-version.*1, 2, or 3"):
                     load_config(self.path)
 
     def test_cli_and_metadata_warnings_report_the_selected_schema(self):
-        for version in (1, 2):
+        for version in (1, 2, 3):
             with self.subTest(version=version):
-                self.write_config({"schema-version": version, "service-name": "frontend", "pod-name": "frontend",
-                                   "custom-metadata": {"owner": "team"}})
+                changes = {"schema-version": version, "service-name": "frontend",
+                           "custom-metadata": {"owner": "team"}}
+                if version == 3:
+                    self.write_v3_config(changes)
+                else:
+                    self.write_config({**changes, "pod-name": "frontend"})
                 result = self.cli()
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f"(schema {version})", result.stdout)
@@ -196,7 +283,7 @@ class ServiceConfigTests(unittest.TestCase):
             for invalid in (None, True, [], {}):
                 with self.subTest(field=field, value=invalid):
                     self.assert_rejected(field, invalid)
-        for invalid in ("1", 1.0, 3):
+        for invalid in ("1", 1.0, 4):
             with self.subTest(schema_version=invalid):
                 self.assert_rejected("schema-version", invalid)
 
@@ -378,6 +465,75 @@ class ServiceConfigTests(unittest.TestCase):
                 self.assertIn(f"{argument}=22.11\n", output.read_text())
                 self.assertIn("BUILD_APT_PACKAGES=gcc libc6:amd64\n", output.read_text())
                 self.assertIn("BUILD_VERSION=1.2.3\n", output.read_text())
+
+    def test_cli_identity_reaches_image_and_deploy_arguments_for_all_schemas(self):
+        steps = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)["jobs"]["deploy"]["steps"]
+        image = next(step for step in steps if step.get("name") == "Compute image references")
+        deploy = next(step for step in steps if step.get("name") == "Deploy image and verify rollout")
+        self.assertEqual(image["env"]["SERVICE_NAME"], "${{ steps.config.outputs.service_name }}")
+        self.assertEqual(deploy["env"]["POD_NAME"], "${{ steps.config.outputs.pod_name }}")
+        self.assertEqual(deploy["env"]["IMAGE"], "${{ steps.image.outputs.deploy_tag }}")
+
+        # Run the actual workflow shell blocks, recording the deployment CLI
+        # arguments in place of making a Tapis request.
+        scripts = self.directory / "scripts"
+        scripts.mkdir()
+        (scripts / "deploy_tapis.py").write_text(
+            "import json, os, pathlib, sys\n"
+            "pathlib.Path(os.environ['DEPLOY_ARGUMENTS']).write_text(json.dumps(sys.argv[1:]))\n"
+        )
+        bin_directory = self.directory / "bin"
+        bin_directory.mkdir()
+        (bin_directory / "python").symlink_to(sys.executable)
+        config_output = self.directory / "config-output"
+        image_output = self.directory / "image-output"
+        arguments = self.directory / "deployment-arguments.json"
+        sha = "a" * 40
+        for version, service, pod in ((1, "existing-service", "existingpod"),
+                                      (2, "exampleservice", "exampleservice"),
+                                      (3, "exampleservice", "exampleservice")):
+            for runtime in ("python", "node-backend", "node-frontend"):
+                with self.subTest(schema=version, runtime=runtime):
+                    changes = {"schema-version": version, "service-name": service,
+                               "runtime-type": runtime,
+                               "runtime-version": "3.13" if runtime == "python" else "22.11"}
+                    if version == 3:
+                        self.write_v3_config(changes)
+                    else:
+                        self.write_config({**changes, "pod-name": pod})
+                    config_output.unlink(missing_ok=True)
+                    result = self.cli("--github-output", config_output)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = dict(line.split("=", 1) for line in config_output.read_text().splitlines())
+                    image_output.write_text("")
+                    environment = {
+                        **os.environ, "REGISTRY": "ghcr.io", "OWNER": "Example-Org",
+                        "SERVICE_NAME": values["service_name"], "SERVICE_VERSION": values["service_version"],
+                        "BUILD_SHA": sha, "RUN_ID": "123", "RUN_ATTEMPT": "1",
+                        "GITHUB_OUTPUT": str(image_output),
+                    }
+                    result = subprocess.run(["bash", "-eu", "-c", image["run"]], env=environment,
+                                            capture_output=True, text=True, timeout=5, check=False)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    images = dict(line.split("=", 1) for line in image_output.read_text().splitlines())
+                    expected_image = f"ghcr.io/example-org/{service}:sha-{sha}-123-1"
+                    self.assertEqual(images["tag"], f"ghcr.io/example-org/{service}:1.2.3")
+                    self.assertEqual(images["deploy_tag"], expected_image)
+                    environment.update(
+                        POD_NAME=values["pod_name"], RUNTIME=values["runtime_type"],
+                        IMAGE=images["deploy_tag"], IMAGE_DIGEST="sha256:" + "b" * 64,
+                        HEALTH_URL=values["health_url"], ROLLOUT_TIMEOUT=values["rollout_timeout"],
+                        TEMPLATES_DIR=str(self.directory), DEPLOY_ARGUMENTS=str(arguments),
+                        GITHUB_STEP_SUMMARY=str(self.directory / "summary"),
+                        PATH=str(bin_directory) + os.pathsep + os.environ["PATH"],
+                    )
+                    result = subprocess.run(["bash", "-eu", "-c", deploy["run"]], env=environment,
+                                            capture_output=True, text=True, timeout=5, check=False)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(json.loads(arguments.read_text()), [
+                        "--pod", pod, "--image", expected_image, "--runtime", runtime,
+                        "--build-sha", sha, "--health-url", "", "--timeout", "300",
+                    ])
 
 
 if __name__ == "__main__":

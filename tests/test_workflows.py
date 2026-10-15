@@ -29,6 +29,7 @@ class WorkflowTests(unittest.TestCase):
                 'scripts/render_wiki.py': False, 'tests/test_render_wiki.py': False,
                 'python/Dockerfile': True, 'node-backend/Dockerfile': True,
                 'node-frontend/entrypoint.sh': True, 'schema/icicle-service.schema.json': True,
+                'schema/icicle-service-v3.schema.json': True, 'icicle-service-v3-example.yaml': True,
                 'tests/fixtures/node-frontend/build.js': True, 'tests/test_deploy_tapis.py': True,
                 'scripts/deploy_tapis.py': True, 'scripts/requirements.txt': True,
                 'icicle-service.example.yaml': True, 'VERSION': True, 'deploy.yaml': True,
