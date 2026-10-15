@@ -8,7 +8,7 @@ These settings are independent:
 |---|---|
 | Template release (`v2.2.1`) | Shared Dockerfiles, workflow, and runtime files. |
 | `schema-version` | Rules for the service configuration; this release supports 1, 2, and 3. |
-| `service-version` | Application release. |
+| `service-version` | Application release and deployed image tag, such as `1.4.2`. |
 | `runtime-version` | Python or Node interpreter/toolchain version. |
 
 New services use schema 3, which derives the deployment pod name from `service-name` and rejects `pod-name`. Existing schemas 1 and 2 remain supported. See [migration guidance](configuration.md).

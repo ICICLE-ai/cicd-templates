@@ -16,8 +16,8 @@ schema-version: 3
 service-name: myservice
 
 # Semantic version (semver).
-# Becomes the version tag. CI deploys a separate unique build tag and records
-# its digest, so repeating this version cannot reuse the previous deployment.
+# Becomes the image tag that CI builds, pushes, and deploys.
+# Bump this value for each new deployable build; reusing a tag can serve a cached image.
 #
 # Example:
 #   0.1.0

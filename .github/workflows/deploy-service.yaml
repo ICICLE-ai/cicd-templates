@@ -158,18 +158,11 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           SERVICE_NAME: ${{ steps.config.outputs.service_name }}
           SERVICE_VERSION: ${{ steps.config.outputs.service_version }}
-          BUILD_SHA: ${{ github.sha }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -eu
           OWNER_LC=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
           IMAGE="${REGISTRY}/${OWNER_LC}/${SERVICE_NAME}"
           echo "tag=${IMAGE}:${SERVICE_VERSION}" >> "$GITHUB_OUTPUT"
-          # Tapis checks the repository portion of tagged images against its
-          # allowlist. A unique build tag avoids overwriting the deployed image
-          # while remaining compatible with sites that reject digest references.
-          echo "deploy_tag=${IMAGE}:sha-${BUILD_SHA}-${RUN_ID}-${RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         id: build
@@ -178,9 +171,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: |
-            ${{ steps.image.outputs.tag }}
-            ${{ steps.image.outputs.deploy_tag }}
+          tags: ${{ steps.image.outputs.tag }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -201,7 +192,7 @@ jobs:
           HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
           POD_NAME: ${{ steps.config.outputs.pod_name }}
           RUNTIME: ${{ steps.config.outputs.runtime_type }}
-          IMAGE: ${{ steps.image.outputs.deploy_tag }}
+          IMAGE: ${{ steps.image.outputs.tag }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
           BUILD_SHA: ${{ github.sha }}
           HEALTH_URL: ${{ steps.config.outputs.health_url }}

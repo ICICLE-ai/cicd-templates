@@ -2,7 +2,7 @@
 
 - New services use **schema 3** with templates **v2.2.1**. `service-name` names both the registry image and Tapis pod; omit `pod-name`. Use 4–64 lowercase ASCII letters/digits, starting with a letter. Spaces, hyphens, underscores, and reserved Tapis names such as `admin`, `images`, and `secrets` are rejected. Tapis manages internal container identifiers.
 - Existing services can retain **schemas 1 and 2**. Schema 1 permits different service/pod names; schema 2 requires matching names. Onboarding review must require schema 3 because CI cannot infer whether a service is new.
-- `service-version` is `MAJOR.MINOR.PATCH`. `project-name` identifies the project; `service-type` is `ai`, `ci`, or `domain`. Project and type are recorded as image labels.
+- `service-version` is `MAJOR.MINOR.PATCH` and becomes the image tag used for building, pushing, and deployment. Bump it for each new deployable build; CI does not change it automatically. `project-name` identifies the project; `service-type` is `ai`, `ci`, or `domain`. Project and type are recorded as image labels.
 - Quote `runtime-version` as `MAJOR.MINOR.PATCH` for an exact interpreter version (new examples: Python `"3.13.16"`, Node `"24.22.0"`). Existing `MAJOR.MINOR` values still resolve a patch on that minor line; legacy unquoted decimals are accepted with a warning. Package lists contain Debian package names, optionally with architecture or exact version.
 - Framework, package name, source layout, and Node module format are application choices.
 

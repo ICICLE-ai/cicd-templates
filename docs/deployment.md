@@ -13,7 +13,11 @@ New frontend API clients **must use relative `/api/...` requests**. Backends mus
 
 CI also supplies `BUILD_VERSION` to backends. Prefer it for health version metadata, with package metadata as a local fallback. Health routes stay outside `/api`.
 
-CI builds and pushes the application version tag plus a unique build tag. It updates only the pod's image, restarts it, and checks for a new instance serving the expected SHA. It records the image digest; unique tags are not registry-enforced immutability. Pod environment, networking, volumes, and resources remain platform-managed.
+CI builds, pushes, and deploys the image tagged with `service-version`. For `service-name: myservice` and `service-version: 1.4.2`, that image is `ghcr.io/icicle-ai/myservice:1.4.2`. This application version is independent of the shared template release.
+
+The Python deployment helper sends `PUT /v3/pods/myservice` with `{"image":"ghcr.io/icicle-ai/myservice:1.4.2"}` as JSON, then calls `GET /v3/pods/myservice/restart`. It verifies that a new instance serves the expected build SHA; CI records the image digest in the Actions summary. The pod must already exist; its environment, networking, volumes, and resources remain platform-managed.
+
+Bump `service-version` for each new deployable build. Reusing a tag can serve a cached image and fail the SHA health check. CI does not bump versions or prevent tag reuse.
 
 The Actions runner must reach the health endpoint. Health redirects are rejected; an optional `HEALTHCHECK_TOKEN` goes only to that endpoint, never in the Tapis API request. Assign one repository to each pod: deployment serialization is scoped to the repository.
 
