@@ -55,7 +55,7 @@ Unset or empty `BACKEND_URL` preserves the previous static/SPA behavior, includi
 
 ## Configure the deployed frontend
 
-New provisioned pods set `PORT=5000`; an explicit `PORT` selects another port from 1024–65535. Nginx reads it at startup. Leaving `PORT` unset preserves port `8000` for existing containers. This setting requires the unreleased frontend changes; images built from `v2.1.0` still listen on `8000` and must use that port until rebuilt with a release containing this change.
+New provisioned pods set `PORT=5000`; an explicit `PORT` selects another port from 1024–65535. Nginx reads it at startup in images built with `v2.2.0` or later. Leaving `PORT` unset preserves port `8000` for existing containers. Images built from `v2.1.0` still listen on `8000` and must use that port until rebuilt with `v2.2.0` or later.
 
 The [deployment workflow](../docs/deployment.md#deployment) manages the existing pod's image. Runtime environment and networking remain platform-managed. Merge this setting into the pod's `environment_variables`, retain its other variables, and restart:
 
@@ -93,7 +93,7 @@ Request buffering stays enabled. Invalid values fail startup. For long-lived str
 From your application directory, fetch all build inputs from the same [template release](../docs/versioning.md#versioning) used by your workflow:
 
 ```bash
-TEMPLATE_REF=v2.1.0
+TEMPLATE_REF=v2.2.0
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL "$BASE/node-frontend/Dockerfile" -o Dockerfile
 curl -fsSL "$BASE/node-frontend/nginx.conf" -o nginx.conf

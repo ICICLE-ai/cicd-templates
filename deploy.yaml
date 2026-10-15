@@ -14,7 +14,7 @@ permissions:
 jobs:
   deploy:
     # Use the tested template release. Upgrade this pin deliberately.
-    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.1.0
+    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.0
     secrets:
       # Shared organization secrets; grant this service repository access.
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}

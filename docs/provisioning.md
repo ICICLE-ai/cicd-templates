@@ -2,7 +2,7 @@
 
 Create pods and volumes from a reviewed catalog, then start, stop, or restart them through GitHub Actions. Developers receive Tapis **USER** access; both required institute accounts receive **ADMIN**. The stable automation account retains its access. All three runtimes are supported.
 
-This feature is unreleased and is not included in `v2.1.0`.
+Available in template release **`v2.2.0`**. Existing service deployment workflows remain compatible.
 
 ## Platform setup
 
@@ -35,7 +35,7 @@ Copy [the catalog example](../provisioning-example.yaml) to `provisioning/<pod-n
 
 Specify the runtime, already-built image, expected build SHA, developers, and optional volumes. Developer usernames, `PORT`, and `BACKEND_URL` are ordinary configuration, not Actions secrets; keep credentials out of URLs. Names need 4–64 lowercase letters/digits, starting with a letter. The catalog filename and new pod image repository name must match the pod name. Use unique image tags. Never commit tokens or passwords.
 
-New pods set `PORT=5000`. Override `environment-variables.PORT` with a string from `"1024"` to `"65535"`; networking follows that value. Backends must read `PORT`. Frontends need the forthcoming template release to honor it; existing `v2.1.0` frontend images require `PORT: "8000"` until rebuilt.
+New pods set `PORT=5000`. Override `environment-variables.PORT` with a string from `"1024"` to `"65535"`; networking follows that value. Backends must read `PORT`. Frontends built with `v2.2.0` honor it; existing `v2.1.0` frontend images require `PORT: "8000"` until rebuilt with `v2.2.0` or later.
 
 After merging, open **Actions → Provision pods and volumes** on the default branch:
 

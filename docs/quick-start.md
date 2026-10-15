@@ -1,6 +1,6 @@
 # Quick start
 
-Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.1.0`**.
+Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.2.0`**.
 
 Choose a runtime, then follow its short guide:
 
@@ -45,7 +45,7 @@ permissions:
   packages: write
 jobs:
   deploy:
-    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.1.0
+    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.0
     secrets:
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
