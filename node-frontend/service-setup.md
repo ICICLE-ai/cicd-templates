@@ -91,7 +91,7 @@ Request buffering stays enabled. Invalid values fail startup. For long-lived str
 From your application directory, fetch all build inputs from the same [template release](../docs/versioning.md#versioning) used by your workflow:
 
 ```bash
-TEMPLATE_REF=v2.1.0
+TEMPLATE_REF=v2.2.0
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL "$BASE/node-frontend/Dockerfile" -o Dockerfile
 curl -fsSL "$BASE/node-frontend/nginx.conf" -o nginx.conf

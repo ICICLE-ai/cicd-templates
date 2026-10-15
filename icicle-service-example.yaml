@@ -1,11 +1,14 @@
-schema-version: 2
+schema-version: 3
 
 # ──────────────────────────────────────────────────────────────────────
 # Service Identity
 # ──────────────────────────────────────────────────────────────────────
 
-# Image name and pod ID must match exactly in schema 2.
-# Use 4-64 lowercase letters/digits, starting with a letter; no hyphens.
+# Names both the image and existing deployment pod. Do not add pod-name.
+# Use 4-64 lowercase letters/digits, starting with a letter; no reserved names.
+# The image repository must be permitted by the site's allowlist. CI updates
+# the image, restarts the pod, and verifies health; it does not create the pod.
+# The platform team owns its environment, networking, and resources.
 #
 # Example image:
 #   ghcr.io/icicle-ai/myservice:0.1.0
@@ -36,18 +39,6 @@ project-name: icicle-project
 # - domain
 #
 service-type: ai
-
-# Existing Tapis pod whose image CI updates, restarts, and verifies.
-# ICICLE requires 4-64 lowercase alphanumeric characters, starting with a
-# letter: ^[a-z][a-z0-9]{3,63}$. No spaces, hyphens, or underscores.
-# Repeat service-name exactly. Schema 1 keeps separate legacy names supported.
-# Its image repository must be permitted by the site's allowlist. CI only
-# changes the image; the platform team owns environment, networking, and resources.
-#
-# Example:
-#   myservice
-#
-pod-name: myservice
 
 # ──────────────────────────────────────────────────────────────────────
 # Runtime Configuration

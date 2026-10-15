@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_SHA = "0123456789abcdef0123456789abcdef01234567"
 BUILD_VERSION = "1.2.3"  # Deliberately differs from package metadata, 0.1.0.
-TEMPLATE_VERSION = "2.1.0"
+TEMPLATE_VERSION = (ROOT / "VERSION").read_text().strip()
 NODE_VERSION = "24.22.0"
 PYTHON_VERSION = "3.13.16"
 TEMPLATE_REVISION = "abcdef0123456789abcdef0123456789abcdef01"
