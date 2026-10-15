@@ -1,6 +1,6 @@
 # Quick start
 
-Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.2.2`**.
+Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.2.1`**.
 
 New services use schema 3: `service-name` names both the image and deployment pod. Existing schemas 1 and 2 remain supported; see [configuration and migration](configuration.md).
 
@@ -46,7 +46,7 @@ permissions:
   packages: write
 jobs:
   deploy:
-    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.2
+    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.1
     secrets:
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}

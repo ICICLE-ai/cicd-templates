@@ -75,7 +75,7 @@ Use your installed distribution name for the local version fallback. CI sets `BU
 Run from your service repository. Match the Python version and dependency setting to your [configuration](../docs/configuration.md#configuration):
 
 ```sh
-TEMPLATES_REF=v2.2.2
+TEMPLATES_REF=v2.2.1
 dockerfile="$(mktemp)"
 curl -fsSL "https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATES_REF/python/Dockerfile" -o "$dockerfile"
 docker build -f "$dockerfile" \

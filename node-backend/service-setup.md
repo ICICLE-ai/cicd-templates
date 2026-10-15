@@ -66,7 +66,7 @@ Download the Dockerfile from the same release used by your deployment workflow:
 
 ```sh
 curl -fsSL \
-  https://raw.githubusercontent.com/icicle-ai/cicd-templates/v2.2.2/node-backend/Dockerfile \
+  https://raw.githubusercontent.com/icicle-ai/cicd-templates/v2.2.1/node-backend/Dockerfile \
   -o Dockerfile
 
 docker build \

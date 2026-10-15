@@ -1,11 +1,11 @@
 # Release notes
 
-## 2.2.2
+## 2.2.1
+
+Reissued on 2026-10-15 with service-version image tags.
 
 - Build, push, and deploy the image tagged with `service-version`, such as `ghcr.io/icicle-ai/myservice:1.4.2`. Remove the additional SHA/run image tag.
-- Keep the Python image update, restart, and rollout verification. The commit SHA remains build metadata checked by the health endpoint. Starter workflows and guides pin `v2.2.2`.
-
-## 2.2.1
+- Keep the Python image update, restart, and rollout verification. The commit SHA remains build metadata checked by the health endpoint. Starter workflows and guides pin `v2.2.1`.
 
 - Frontend Nginx listens on port `5000` by default. Set runtime `PORT` to override it without rebuilding; existing pods targeting port `8000` must set `PORT=8000` when upgrading. Match the pod networking target port to the listener.
 - Validate `PORT` before rendering the Nginx configuration. Backend application ports are unchanged.
