@@ -5,11 +5,14 @@ import contextlib
 import io
 import json
 import os
+from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 
 from scripts.deploy_tapis import APIError, DeploymentError, HTTPConnectionError
 from scripts import provision_tapis
+from scripts.pod_config import merge_secret_environment
 from scripts.provision_tapis import payloads, permissions, provision
 
 
@@ -417,6 +420,86 @@ class ProvisionTests(unittest.TestCase):
         self.assertEqual(execute.call_args.kwargs["tenant"], "other")
         self.assertFalse(execute.call_args.kwargs["apply"])
         self.assertEqual(execute.call_args.args[2], ADMINS)
+
+    def test_cli_merges_secret_values_for_plan_and_apply_without_logging_them(self):
+        values = {"DATABASE_URL": "postgresql://user:private-password@database/service",
+                  "PRIVATE_KEY": "  private-key-line-one\nprivate-key-line-two\n"}
+        config = {**CONFIG, "secret-environment-keys": ["DATABASE_URL"]}
+        for apply in (False, True):
+            with self.subTest(apply=apply), tempfile.TemporaryDirectory() as directory:
+                summary = Path(directory) / "summary"
+                client = Client()
+                env = {"TAPIS_TOKEN": "private-tapis-token", "TAPIS_REQUIRED_ADMINS": json.dumps(ADMINS),
+                       "TAPIS_BASE_URL": BASE, "TAPIS_TENANT_ID": "institute", "GITHUB_REPOSITORY": OWNER,
+                       "GITHUB_STEP_SUMMARY": str(summary), "POD_ENV_JSON": json.dumps(values)}
+                arguments = ["provision_tapis", "--config", "pod.yaml"] + (["--apply"] if apply else [])
+                with mock.patch.dict(os.environ, env, clear=True), mock.patch("sys.argv", arguments), \
+                        mock.patch.object(provision_tapis, "load_config", return_value=config), \
+                        mock.patch.object(provision_tapis, "HTTPClient", return_value=client), \
+                        contextlib.redirect_stdout(io.StringIO()) as stdout, \
+                        contextlib.redirect_stderr(io.StringIO()) as stderr:
+                    self.assertEqual(provision_tapis.main(), 0)
+                output = stdout.getvalue() + stderr.getvalue() + summary.read_text()
+                for secret in (*values.keys(), "private-password", "private-key-line-one", "private-key-line-two"):
+                    self.assertNotIn(secret, output)
+                if apply:
+                    expected = {**CONFIG["environment-variables"], **values}
+                    self.assertEqual(client.resources[POD_URL]["environment_variables"], expected)
+                    creates = [call for call in client.calls if call[0] == "POST" and call[1] == BASE + "/v3/pods"]
+                    self.assertEqual(creates[0][2]["environment_variables"], expected)
+                    self.assertNotIn("secret-environment-keys", creates[0][2])
+                else:
+                    self.assertEqual(client.mutations(), [])
+        self.assertEqual(CONFIG["environment-variables"], {"PUBLIC_OPTION": "example", "PORT": "5000"})
+
+    def test_cli_invalid_or_missing_required_secret_json_fails_before_any_api_calls(self):
+        secret = "private-value-not-for-logs"
+        invalid = [secret, '{"PASSWORD":"' + secret + '","PASSWORD":"duplicate"}',
+                   json.dumps({"PASSWORD": {"nested": secret}}), json.dumps({"PASSWORD": 1}),
+                   json.dumps({"PORT": secret}), json.dumps({"PUBLIC_OPTION": secret}),
+                   json.dumps({"BAD\nNAME": secret}), json.dumps({"PASSWORD": secret + "\x00"}),
+                   json.dumps({"PASSWORD": "\ud800"}), json.dumps({"PASSWORD": secret + "x" * 16384}),
+                   '{"PASSWORD":' + '[' * 1500 + '"' + secret + '"' + ']' * 1500 + '}',
+                   json.dumps({"ONE": "x" * 16000, "TWO": "x" * 16000, "THREE": secret * 40})]
+        cases = [(CONFIG, raw) for raw in invalid]
+        cases.extend(({**CONFIG, "secret-environment-keys": ["REQUIRED_KEY"]}, raw)
+                     for raw in (None, "", "{}", json.dumps({"REQUIRED_KEY": "", "OTHER": secret})))
+        for apply in (False, True):
+            for index, (config, raw) in enumerate(cases):
+                with self.subTest(apply=apply, case=index):
+                    env = {"TAPIS_TOKEN": "private-tapis-token", "TAPIS_REQUIRED_ADMINS": json.dumps(ADMINS)}
+                    if raw is not None:
+                        env["POD_ENV_JSON"] = raw
+                    arguments = ["provision_tapis", "--config", "pod.yaml"] + (["--apply"] if apply else [])
+                    self.ensure_image.reset_mock()
+                    with mock.patch.dict(os.environ, env, clear=True), mock.patch("sys.argv", arguments), \
+                            mock.patch.object(provision_tapis, "load_config", return_value=config), \
+                            mock.patch.object(provision_tapis, "HTTPClient") as factory, \
+                            mock.patch.object(provision_tapis, "provision") as execute, \
+                            contextlib.redirect_stdout(io.StringIO()) as stdout, \
+                            contextlib.redirect_stderr(io.StringIO()) as stderr:
+                        self.assertEqual(provision_tapis.main(), 1)
+                    factory.assert_not_called()
+                    execute.assert_not_called()
+                    self.ensure_image.assert_not_called()
+                    self.assertNotIn(secret, stdout.getvalue() + stderr.getvalue())
+
+    def test_secret_rerun_matches_exactly_and_rotation_never_updates_existing_pod(self):
+        client = Client()
+        config = merge_secret_environment(CONFIG, '{"DATABASE_PASSWORD":"old-private-password"}')
+        self.run_provision(client, config)
+        client.calls.clear()
+        self.run_provision(client, config)
+        self.assertEqual(client.mutations(), [])
+        for apply in (False, True):
+            client.calls.clear()
+            rotated = merge_secret_environment(CONFIG, '{"DATABASE_PASSWORD":"new-private-password"}')
+            with self.assertRaisesRegex(DeploymentError, "does not update environments or rotate secrets") as error:
+                self.run_provision(client, rotated, apply=apply)
+            self.assertNotIn("old-private-password", str(error.exception))
+            self.assertNotIn("new-private-password", str(error.exception))
+            self.assertNotIn("DATABASE_PASSWORD", str(error.exception))
+            self.assertEqual(client.mutations(), [])
 
     def test_cli_requires_tapis_token(self):
         with mock.patch.dict(os.environ, {"HEALTHCHECK_TOKEN": "wrong-token"}, clear=True), \

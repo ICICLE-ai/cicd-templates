@@ -15,7 +15,9 @@ volumes:
     size-limit: 1024  # MB; Tapis reports usage, this is not an enforced quota.
     read-only: false
 
-# Nonsecret values only. Configure application secrets through the platform.
+# Nonsecret values only. Store secrets as JSON in the central repository's
+# POD_ENV_MYSERVICE secret, and declare any required keys below.
+# secret-environment-keys: [DATABASE_URL, API_KEY]
 environment-variables:
   PORT: "5000"  # Default for new pods; sets container PORT and pod networking.
 # For a frontend, for example:

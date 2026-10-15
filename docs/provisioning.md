@@ -19,7 +19,14 @@ Keep shared credentials and policy in **organization secrets**. Use **Selected r
 
 Reuse `TAPIS_TOKEN`; no additional provisioning token is required. Keep service repositories' access to this token so their existing deployments continue working.
 
-Keep service-specific `HEALTHCHECK_TOKEN` values in **repository secrets**. If central provisioning or lifecycle checks call a protected health endpoint, configure its matching token in the platform repository or its `tapis` environment too. Central workflows currently use one token for all services; they do not select different tokens per catalog entry.
+Keep service-specific values in **repository secrets**:
+
+| Repository secret | Repository | Purpose |
+|---|---|---|
+| `POD_ENV_<UPPERCASE_POD_NAME>` | Platform repository | Optional JSON object of runtime secrets for one pod. For `myservice`, use `POD_ENV_MYSERVICE`. |
+| `HEALTHCHECK_TOKEN` | Service repository | Optional bearer token for deployment health checks. Add the matching token to the platform repository or its `tapis` environment when central operations check that endpoint. |
+
+Central health checks currently use one `HEALTHCHECK_TOKEN` for all services; per-pod runtime secrets are selected separately.
 
 Actions reads all these scopes through `${{ secrets.NAME }}`; there is no separate organization-secret namespace. Environment secrets override repository secrets, which override organization secrets. Avoid duplicate names unless an override is intentional. See [GitHub's secret precedence rules](https://docs.github.com/en/actions/reference/security/secrets).
 
@@ -36,6 +43,27 @@ Copy [the catalog example](../provisioning-example.yaml) to `provisioning/<pod-n
 Specify the runtime, already-built image, expected build SHA, developers, and optional volumes. Developer usernames, `PORT`, and `BACKEND_URL` are ordinary configuration, not Actions secrets; keep credentials out of URLs. Names need 4–64 lowercase letters/digits, starting with a letter. The catalog filename and new pod image repository name must match the pod name. Use unique image tags. Never commit tokens or passwords.
 
 New pods set `PORT=5000`. Override `environment-variables.PORT` with a string from `"1024"` to `"65535"`; networking follows that value. Backends must read `PORT`. Frontends built with `v2.2.0` honor it; existing `v2.1.0` frontend images require `PORT: "8000"` until rebuilt with `v2.2.0` or later.
+
+Declare required runtime secret names in the catalog:
+
+```yaml
+secret-environment-keys: [DATABASE_URL, API_KEY]
+```
+
+Then open the **platform repository → Settings → Secrets and variables → Actions → New repository secret**. Name it `POD_ENV_MYSERVICE` for pod `myservice` and enter a JSON object such as:
+
+```json
+{
+  "DATABASE_URL": "replace-with-the-connection-string",
+  "API_KEY": "replace-with-the-real-value"
+}
+```
+
+Use string values and environment variable names containing letters, digits, or underscores, starting with a letter or underscore. The JSON must be at most 32 KiB, with no duplicate keys. Secret keys cannot overlap catalog environment variables; `PORT` always belongs in the catalog. Keep nonsecret `BACKEND_URL` there too. GitHub secret names are case-insensitive; uppercase names make the convention clear.
+
+Provisioning selects the secret using the validated pod name and requires every declared key to have a nonempty string value. If no keys are declared, absent or empty JSON remains optional. Values enter the new pod's ordinary Tapis `environment_variables`, not a write-only secret store; accounts allowed to read pod configuration may see them. The workflow never prints values or uses them as frontend build inputs.
+
+Reruns check existing environment values without changing them. Updating the GitHub secret alone does not rotate a running pod's credentials; update the pod environment deliberately through the platform and restart it. Lifecycle operations preserve the existing environment.
 
 After merging, open **Actions → Provision pods and volumes** on the default branch:
 

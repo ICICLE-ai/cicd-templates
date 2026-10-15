@@ -59,9 +59,10 @@ jobs:
         run: python -m pip install -r scripts/requirements.txt
 
       - name: Validate catalog configuration
+        id: config
         env:
           CONFIG_PATH: ${{ steps.inputs.outputs.config }}
-        run: python -m scripts.pod_config --config "$CONFIG_PATH" --catalog-root provisioning
+        run: python -m scripts.pod_config --config "$CONFIG_PATH" --catalog-root provisioning --github-output "$GITHUB_OUTPUT"
 
       - name: Plan or apply provisioning
         env:
@@ -73,6 +74,8 @@ jobs:
           TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
           TAPIS_REQUIRED_ADMINS: ${{ secrets.TAPIS_REQUIRED_ADMINS }}
           SLACK_PROVISIONING_WEBHOOK_URL: ${{ secrets.SLACK_PROVISIONING_WEBHOOK_URL }}
+          # Optional per-pod repository secret; selected only after catalog validation.
+          POD_ENV_JSON: ${{ secrets[format('POD_ENV_{0}', steps.config.outputs.pod_name)] }}
           # Optional repository/environment secret for the target health endpoint.
           HEALTHCHECK_TOKEN: ${{ secrets.HEALTHCHECK_TOKEN }}
         run: |

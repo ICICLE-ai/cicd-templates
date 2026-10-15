@@ -55,7 +55,7 @@ jobs:
 
 Grant your service repository access to the organization secret **`TAPIS_TOKEN`**. Optional shared **`REGISTRY_USERNAME`** and **`REGISTRY_PASSWORD`** also belong at organization scope, with access granted only to repositories using them. Omit both registry secrets to authenticate GHCR with `github.actor` and `github.token`; the package must grant this calling repository write access.
 
-Set **`HEALTHCHECK_TOKEN`** as a service-specific repository secret only when its health endpoint requires a bearer token. Provisioning's administrator list and Slack webhook are organization secrets used only by the platform repository. Developer usernames, `PORT`, and `BACKEND_URL` are ordinary configuration; keep credentials out of URLs. See the [secret access table](provisioning.md#platform-setup).
+Set **`HEALTHCHECK_TOKEN`** as a service-specific repository secret only when its health endpoint requires a bearer token. Provisioning's administrator list and Slack webhook are organization secrets used only by the platform repository. For application runtime credentials, add a per-pod JSON repository secret there, such as **`POD_ENV_MYSERVICE`** for pod `myservice`; see the [provisioning guide](provisioning.md#add-a-service). Developer usernames, `PORT`, and `BACKEND_URL` are ordinary catalog configuration; keep credentials out of URLs. See the [secret access table](provisioning.md#platform-setup).
 
 All scopes use `${{ secrets.NAME }}`. Environment secrets override repository secrets, which override organization secrets, so avoid duplicate names unless an override is intentional. [GitHub documents this precedence](https://docs.github.com/en/actions/reference/security/secrets). You can also copy the [starter workflow](../deploy.yaml).
 

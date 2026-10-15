@@ -113,6 +113,7 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotIn('env', job)
                 for step in job['steps'][:-1]:
                     self.assertNotIn('secrets.', repr(step))
+                    self.assertNotIn('secrets[', repr(step))
                 credential_step = job['steps'][-1]
                 self.assertEqual(credential_step['env']['TAPIS_TOKEN'], '${{ secrets.TAPIS_TOKEN }}')
                 self.assertEqual(credential_step['env']['SLACK_PROVISIONING_WEBHOOK_URL'], '${{ secrets.SLACK_PROVISIONING_WEBHOOK_URL }}')
@@ -128,6 +129,17 @@ class WorkflowTests(unittest.TestCase):
         lifecycle_inputs = workflow('pod-lifecycle.yaml')['on']['workflow_dispatch']['inputs']
         self.assertEqual(set(lifecycle_inputs), {'pod-name', 'action', 'build-sha'})
         self.assertEqual(lifecycle_inputs['action']['options'], ['start', 'stop', 'restart'])
+
+    def test_pod_environment_secret_uses_validated_catalog_output_only_for_provisioning(self):
+        steps = workflow('provision-pods.yaml')['jobs']['provision']['steps']
+        validation = next(step for step in steps if step.get('name') == 'Validate catalog configuration')
+        self.assertEqual(validation['id'], 'config')
+        self.assertIn('--github-output "$GITHUB_OUTPUT"', validation['run'])
+        self.assertEqual(steps[-1]['env']['POD_ENV_JSON'],
+                         "${{ secrets[format('POD_ENV_{0}', steps.config.outputs.pod_name)] }}")
+        self.assertNotIn('POD_ENV_JSON', steps[-1]['run'])
+        lifecycle = workflow('pod-lifecycle.yaml')['jobs']['lifecycle']
+        self.assertNotIn('POD_ENV_', repr(lifecycle))
 
     def test_pod_dispatch_rejects_paths_and_shell_input_without_evaluating_it(self):
         for filename in ('provision-pods.yaml', 'pod-lifecycle.yaml'):

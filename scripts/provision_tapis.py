@@ -8,7 +8,7 @@ import time
 
 from .deploy_tapis import (APIError, DeploymentError, HTTPClient, HTTPConnectionError,
                            api_result, checked_url, health_url, matches_health)
-from .pod_config import load_config, required_admins
+from .pod_config import load_config, merge_secret_environment, required_admins
 from .tapis_images import MissingImageApproval, ensure_image_allowed, notify_missing_image
 
 
@@ -118,6 +118,9 @@ def check_volume(actual, expected):
 def check_pod(actual, expected):
     for key in ("pod_id", "description", "image", "environment_variables", "time_to_stop_default"):
         if actual.get(key) != expected[key]:
+            if key == "environment_variables":
+                raise DeploymentError("Existing pod does not match the planned environment_variables; "
+                                      "provisioning does not update environments or rotate secrets")
             raise DeploymentError(f"Existing pod does not match the planned {key}; "
                                   "use the deployment workflow for image updates, not provisioning")
     # Generated networking URLs, mount identities, and default resource fields are expected.
@@ -329,6 +332,7 @@ def main():
         parser.error("TAPIS_TOKEN is required in the environment")
     try:
         config = load_config(args.config)
+        config = merge_secret_environment(config, os.environ.get("POD_ENV_JSON", ""))
         admins = required_admins(os.environ.get("TAPIS_REQUIRED_ADMINS", ""))
         result = provision(HTTPClient(token, os.environ.get("HEALTHCHECK_TOKEN", "")), config, admins,
                            base_url=args.base_url, tenant=args.tenant, owner=args.owner, apply=args.apply)
