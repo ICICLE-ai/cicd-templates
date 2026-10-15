@@ -1,13 +1,11 @@
-schema-version: 2
+schema-version: 3
 
-# Identity: service-name and pod-name MUST be identical in schema 2.
-# Use 4-64 lowercase letters/digits, starting with a letter; no hyphens.
+# Identity: service-name names both the image and existing deployment pod.
+# Use 4-64 lowercase letters/digits, starting with a letter; no reserved names.
 service-name:
 service-version:
 project-name:
 service-type:
-# Existing Tapis pod ID; repeat service-name exactly.
-pod-name:
 
 # Runtime
 runtime-type:

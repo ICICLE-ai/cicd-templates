@@ -1,8 +1,9 @@
 # Release notes
 
-## Unreleased
+## 2.2.0
 
 - Add service schema 3 with one `service-name` for the registry image and deployment pod. Enforce pod naming rules and reject a separate `pod-name`; schemas 1 and 2 retain their existing behavior.
+- New-service starters use schema 3 and pin the shared workflow and manual downloads to `v2.2.0`. Existing services upgrade explicitly; this does not create or rename pods.
 
 ## 2.1.0
 

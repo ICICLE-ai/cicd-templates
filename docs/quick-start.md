@@ -1,8 +1,8 @@
 # Quick start
 
-Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.1.0`**.
+Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.2.0`**.
 
-The unreleased [schema 3 example](../icicle-service-v3-example.yaml) removes `pod-name`. Keep using schema 2 with the published pin below until a release includes schema 3 support.
+New services use schema 3: `service-name` names both the image and deployment pod. Existing schemas 1 and 2 remain supported; see [configuration and migration](configuration.md).
 
 Choose a runtime, then follow its short guide:
 
@@ -17,9 +17,8 @@ Before deploying, the platform team must provision a Tapis pod, allow its image 
 **1. Create `icicle-service.yaml` in your service repository.** This example is for Python; change the runtime fields for Node:
 
 ```yaml
-schema-version: 2
+schema-version: 3
 service-name: myservice
-pod-name: myservice
 service-version: 0.1.0
 project-name: myproject
 service-type: ai
@@ -30,7 +29,7 @@ build-apt-packages: []
 runtime-apt-packages: []
 ```
 
-For Node, select `node-backend` or `node-frontend` and a quoted Node version such as `"24.22.0"`. The frontend's Node version is used only during its build. Use the name of your actual provisioned pod.
+For Node, select `node-backend` or `node-frontend` and a quoted Node version such as `"24.22.0"`. The frontend's Node version is used only during its build. Set `service-name` to your provisioned pod's name: 4–64 lowercase letters/digits, starting with a letter, excluding reserved Tapis names. Do not add `pod-name`.
 
 **2. Add the files required by your runtime guide.** Copy its `.dockerignore`. Backends need an `entrypoint.sh`; the frontend receives its startup script from CI. CI supplies the authoritative Dockerfile and Nginx files, so service-local edits to downloaded copies will be replaced.
 
@@ -47,7 +46,7 @@ permissions:
   packages: write
 jobs:
   deploy:
-    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.1.0
+    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.0
     secrets:
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}

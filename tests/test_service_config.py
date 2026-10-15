@@ -78,18 +78,17 @@ class ServiceConfigTests(unittest.TestCase):
             capture_output=True, text=True, timeout=5, check=False,
         )
 
-    def test_schemas_and_stable_and_unreleased_examples_pass(self):
+    def test_schemas_and_published_examples_pass(self):
         for version, schema_path in SCHEMA_PATHS.items():
             with self.subTest(version=version):
                 Draft202012Validator.check_schema(json.loads(schema_path.read_text()))
-        stable = load_config(ROOT / "icicle-service-example.yaml")
-        self.assertEqual(stable.config["schema-version"], 2)
-        self.assertEqual(stable.config["service-name"], stable.config["pod-name"])
-        result = load_config(ROOT / "icicle-service-v3-example.yaml")
-        self.assertEqual(result.config["schema-version"], 3)
-        self.assertEqual(result.config["service-name"], result.github_outputs()["pod_name"])
-        self.assertNotIn("pod-name", result.config)
-        self.assertNotIn("pod-name", yaml.safe_load((ROOT / "icicle-service-v3-example.yaml").read_text()))
+        for name in ("icicle-service-example.yaml", "icicle-service-v3-example.yaml"):
+            with self.subTest(example=name):
+                result = load_config(ROOT / name)
+                self.assertEqual(result.config["schema-version"], 3)
+                self.assertEqual(result.config["service-name"], result.github_outputs()["pod_name"])
+                self.assertNotIn("pod-name", result.config)
+                self.assertNotIn("pod-name", yaml.safe_load((ROOT / name).read_text()))
 
     def test_v1_still_accepts_different_service_and_pod_names(self):
         self.write_config({"service-name": "existing-service", "pod-name": "existingpod"})
