@@ -14,7 +14,7 @@ from jsonschema import Draft202012Validator, FormatChecker, validators
 
 SCHEMA_PATHS = {
     version: Path(__file__).resolve().parents[1] / f"schema/icicle-service-v{version}.schema.json"
-    for version in (1, 2)
+    for version in (1, 2, 3)
 }
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 RUNTIME_VERSION = re.compile(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?\Z")
@@ -48,11 +48,15 @@ class ValidationResult:
             name.replace("-", "_"): str(self.config[name])
             for name in (
                 "schema-version", "service-name", "service-version", "project-name",
-                "service-type", "pod-name", "runtime-type", "runtime-version",
+                "service-type", "runtime-type", "runtime-version",
                 "rollout-timeout",
             )
         }
         values.update(
+            # Preserve the deployment interface without adding the forbidden
+            # pod-name source field to schema-v3 normalized configuration.
+            pod_name=self.config["service-name"] if self.config["schema-version"] == 3
+            else self.config["pod-name"],
             build_apt=" ".join(self.config["build-apt-packages"]),
             runtime_apt=" ".join(self.config["runtime-apt-packages"]),
             health_url=self.config.get("health-url", ""),
@@ -145,7 +149,9 @@ def load_config(path):
     _check_json_values(config)
     version = config.get("schema-version")
     if type(version) is not int or version not in SCHEMA_PATHS:
-        raise ConfigError("schema-version must be an integer supported version: 1 or 2")
+        raise ConfigError("schema-version must be an integer supported version: 1, 2, or 3")
+    if version == 3 and "pod-name" in config:
+        raise ConfigError("schema-version 3 derives pod-name from service-name; remove pod-name from the service YAML")
 
     # Legacy yq accepted unquoted decimal runtime versions. Preserve their YAML
     # spelling (22.10 must not become 22.1), then apply the string schema.

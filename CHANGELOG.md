@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+- Add service schema 3 with one `service-name` for the registry image and deployment pod. Enforce pod naming rules and reject a separate `pod-name`; schemas 1 and 2 retain their existing behavior.
+
 ## 2.1.0
 
 - Reuse dependency layers and repository/service/runtime build caches; preserve source-dependent npm installs and production lifecycle scripts. Node supports `npm-install-mode: auto|full` and non-secret `.npmrc`.

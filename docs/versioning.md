@@ -11,6 +11,8 @@ These settings are independent:
 | `service-version` | Application release. |
 | `runtime-version` | Python or Node interpreter/toolchain version. |
 
+Unreleased schema 3 derives the deployment pod name from `service-name` and rejects `pod-name`. It requires a template release containing that support; the published `v2.1.0` starter remains on schema 2. See [migration guidance](configuration.md).
+
 Images record `io.icicle.template.version` and `io.icicle.template.revision`. CI supplies the corresponding `TEMPLATE_VERSION` and `TEMPLATE_REVISION` build arguments; manual builds default to `development` and `unknown`. The published `v1` predates this setup. See [release notes](../CHANGELOG.md).
 
 ## Maintaining the templates
