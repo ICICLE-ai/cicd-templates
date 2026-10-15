@@ -14,7 +14,7 @@ location ~ ^/api(?:/|$) {
     proxy_set_header Upgrade $icicle_upstream_upgrade;
     proxy_set_header Connection $icicle_upstream_connection;
     # Keep upstream redirects rewritten by proxy_redirect relative, avoiding
-    # an internal http://frontend:8000 URL behind Tapis's HTTPS ingress.
+    # an internal http://frontend:5000 URL behind Tapis's HTTPS ingress.
     absolute_redirect off;
 
     # Route HTTPS/virtual-host upstreams using their own host, while telling

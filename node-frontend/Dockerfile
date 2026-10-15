@@ -29,7 +29,7 @@
 # │     --build-arg RUNTIME_APT_PACKAGES="" \                               │
 # │     --build-arg BUILD_SHA=local-test \                                  │
 # │     -t my-frontend:test .                                               │
-# │   docker run --rm -p 8000:8000 my-frontend:test                         │
+# │   docker run --rm -p 5000:5000 my-frontend:test                         │
 # │                                                                         │
 # │ NEED SOMETHING THIS TEMPLATE DOESN'T SUPPORT?                           │
 # │   Open an issue in github.com/icicle-ai/cicd-templates and ping         │
@@ -213,7 +213,8 @@ RUN printf '%s' "${BUILD_SHA}" > /app/site/.build_sha \
 USER icicle
 WORKDIR /app
 
-EXPOSE 8000
+ENV PORT=5000
+EXPOSE 5000
 
 # SIGQUIT lets nginx finish active requests when the container is stopped.
 STOPSIGNAL SIGQUIT

@@ -28,8 +28,7 @@ if [ -n "$BACKEND_URL" ]; then
     export BACKEND_URL
 fi
 
-# Keep nginx's existing limits unless a service explicitly opts into larger
-# uploads, slower upstreams, streaming responses, or WebSocket upgrades.
+# Validate bounded decimal settings before inserting them into nginx config.
 validate_integer() {
     name=$1 value=$2 maximum=$3
     case "$value" in
@@ -38,12 +37,18 @@ validate_integer() {
             exit 1 ;;
     esac
     # Bound the digit count before shell arithmetic/comparison (no overflow).
-    if [ "${#value}" -gt 4 ] || [ "$value" -gt "$maximum" ]; then
+    if [ "${#value}" -gt "${#maximum}" ] || [ "$value" -gt "$maximum" ]; then
         echo "ERROR: $name must be an integer from 1 to $maximum." >&2
         exit 1
     fi
 }
 
+# Match the Tapis pod default; existing deployments can set PORT=8000.
+PORT=${PORT-5000}
+validate_integer PORT "$PORT" 65535
+
+# Keep nginx's existing limits unless a service explicitly opts into larger
+# uploads, slower upstreams, streaming responses, or WebSocket upgrades.
 BACKEND_MAX_BODY_SIZE_MB=${BACKEND_MAX_BODY_SIZE_MB-1}
 BACKEND_CONNECT_TIMEOUT_SECONDS=${BACKEND_CONNECT_TIMEOUT_SECONDS-60}
 BACKEND_READ_TIMEOUT_SECONDS=${BACKEND_READ_TIMEOUT_SECONDS-60}
@@ -70,12 +75,12 @@ case "$BACKEND_STREAMING" in
 esac
 export BACKEND_MAX_BODY_SIZE_MB BACKEND_CONNECT_TIMEOUT_SECONDS
 export BACKEND_READ_TIMEOUT_SECONDS BACKEND_SEND_TIMEOUT_SECONDS
-export BACKEND_PROXY_BUFFERING BACKEND_WEBSOCKETS
+export PORT BACKEND_PROXY_BUFFERING BACKEND_WEBSOCKETS
 
 # The image creates this directory for uid 999. Recreate it if /tmp is mounted
 # as an empty writable volume; no writes to /etc/nginx are needed at runtime.
 mkdir -p /tmp/nginx
-envsubst '${BACKEND_WEBSOCKETS}' \
+envsubst '${PORT} ${BACKEND_WEBSOCKETS}' \
     < /etc/nginx/templates/nginx.conf > /tmp/nginx/nginx.conf
 # Always replace the include, including after a restart with proxying disabled.
 : > /tmp/nginx/api.conf
