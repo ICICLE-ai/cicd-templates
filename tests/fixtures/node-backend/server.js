@@ -11,5 +11,6 @@ const server = http.createServer((request, response) => {
     }));
   });
 });
-server.listen(8000, "0.0.0.0");
+// Keep the legacy default; the image tests also supply the new pod's PORT=5000.
+server.listen(Number(process.env.PORT || "8000"), "0.0.0.0");
 process.on("SIGTERM", () => server.close(() => process.exit(0)));

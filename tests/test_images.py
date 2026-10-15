@@ -251,11 +251,13 @@ class ImageSmokeTests(unittest.TestCase):
                 cls.images[name] = tag
 
     @contextlib.contextmanager
-    def container(self, runtime, *options):
+    def container(self, runtime, *options, listen_port=8000):
         name = f"{self.prefix}-{uuid.uuid4().hex[:8]}"
-        docker("run", "--detach", "--name", name, "--publish", "127.0.0.1::8000", *options, self.images[runtime])
+        port_environment = ("--env", f"PORT={listen_port}") if listen_port != 8000 else ()
+        docker("run", "--detach", "--name", name, "--publish", f"127.0.0.1::{listen_port}",
+               *port_environment, *options, self.images[runtime])
         try:
-            port = int(docker("port", name, "8000/tcp").stdout.strip().rsplit(":", 1)[1])
+            port = int(docker("port", name, f"{listen_port}/tcp").stdout.strip().rsplit(":", 1)[1])
             health = "/healthcheck" if runtime == "node-frontend" else "/health"
             deadline = time.monotonic() + 20
             while time.monotonic() < deadline:
@@ -448,20 +450,35 @@ class ImageSmokeTests(unittest.TestCase):
             docker("exec", name, "rm", "/app/site/.build_sha")
             self.assertEqual(self.request(port, "/healthcheck")[2], b"")
 
+    def test_all_runtimes_accept_new_pod_port_5000_without_rebuild(self):
+        for runtime in ("python", "node-backend", "node-frontend"):
+            with self.subTest(runtime=runtime), self.container(runtime, listen_port=5000) as (_name, port):
+                if runtime == "node-frontend":
+                    self.assert_frontend(port)
+                    self.assertEqual(self.request(port, "/api/tasks")[2], INDEX)
+                else:
+                    self.assert_backend_health(port)
+                    path = "/api/example/items?port=5000"
+                    self.assertEqual(json.loads(self.request(port, path)[2])["path"], path)
+
     def test_same_frontend_image_with_backend_on_shared_network(self):
         network = self.prefix + "-network"
         docker("network", "create", network)
         try:
-            with (
-                self.container("node-backend", "--network", network, "--network-alias", "backend"),
-                self.container("node-frontend", "--network", network, "--env", "BACKEND_URL=http://backend:8000") as (_name, port),
-            ):
-                self.assert_frontend(port)
-                path, body = "/api/example/items?next=%2Fexample&tag=one&tag=two", '{"test":true}'
-                status, _, response = self.request(port, path, "POST", body)
-                value = json.loads(response)
-                self.assertEqual(status, 200)
-                self.assertEqual((value["path"], value["method"], value["body"]), (path, "POST", body))
+            for listen_port in (8000, 5000):
+                with (
+                    self.subTest(listen_port=listen_port),
+                    self.container("node-backend", "--network", network, "--network-alias", "backend",
+                                   listen_port=listen_port),
+                    self.container("node-frontend", "--network", network, "--env",
+                                   f"BACKEND_URL=http://backend:{listen_port}", listen_port=listen_port) as (_name, port),
+                ):
+                    self.assert_frontend(port)
+                    path, body = "/api/example/items?next=%2Fexample&tag=one&tag=two", '{"test":true}'
+                    status, _, response = self.request(port, path, "POST", body)
+                    value = json.loads(response)
+                    self.assertEqual(status, 200)
+                    self.assertEqual((value["path"], value["method"], value["body"]), (path, "POST", body))
         finally:
             docker("network", "rm", network, check=False)
 

@@ -44,12 +44,14 @@ jobs:
           else:
               files = subprocess.check_output(['git', 'diff', '--name-only', '-z', base, 'HEAD']).decode().split('\0')
               patterns = ['python/**', 'node-backend/**', 'node-frontend/**', 'schema/**',
-                          'tests/**', 'icicle-service*.yaml', 'VERSION', 'deploy.yaml',
-                          'scripts/deploy_tapis.py', 'scripts/validate_config.py', 'scripts/requirements.txt',
+                          'tests/**', 'icicle-service*.yaml', 'provisioning*.yaml', 'provisioning/**', 'VERSION', 'deploy.yaml',
+                          'scripts/*.py', 'scripts/requirements.txt',
                           '.github/workflows/deploy-service.yaml', '.github/workflows/test-templates.yaml',
+                          '.github/workflows/provision-pods.yaml', '.github/workflows/pod-lifecycle.yaml',
                           '.github/dependabot.yml']
               changed = any(fnmatch.fnmatch(path, pattern) for path in files
-                            if path and not path.lower().endswith('.md') and path != 'tests/test_render_wiki.py'
+                            if path and not path.lower().endswith('.md')
+                            and path not in ('scripts/render_wiki.py', 'tests/test_render_wiki.py')
                             for pattern in patterns)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'code={str(changed).lower()}\n')

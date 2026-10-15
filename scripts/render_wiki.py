@@ -14,6 +14,7 @@ PAGES = {
     "docs/quick-start.md": "Quick-start",
     "docs/configuration.md": "Configuration",
     "docs/deployment.md": "Deployment",
+    "docs/provisioning.md": "Pods-and-volumes",
     "docs/versioning.md": "Versioning",
     "python/service-setup.md": "Python",
     "node-backend/service-setup.md": "Node-backend",
@@ -84,6 +85,7 @@ def render(output):
         ("Static-frontends", "Static frontends"),
         ("Configuration", "Configuration"),
         ("Deployment", "Deployment"),
+        ("Pods-and-volumes", "Pods and volumes"),
         ("Versioning", "Versioning and maintenance"),
         ("Release-notes", "Release notes"),
     )

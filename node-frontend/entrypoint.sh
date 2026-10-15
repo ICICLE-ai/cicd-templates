@@ -1,6 +1,21 @@
 #!/usr/bin/env sh
 set -eu
 
+# New pods supply PORT; omission preserves existing containers on port 8000.
+# Reject privileged ports, leading zeros, and configuration injection before
+# rendering. Bound the digit count before shell arithmetic can overflow.
+PORT=${PORT-8000}
+case "$PORT" in
+    ''|*[!0-9]*|0*)
+        echo "ERROR: PORT must be an integer from 1024 to 65535." >&2
+        exit 1 ;;
+esac
+if [ "${#PORT}" -gt 5 ] || [ "$PORT" -lt 1024 ] || [ "$PORT" -gt 65535 ]; then
+    echo "ERROR: PORT must be an integer from 1024 to 65535." >&2
+    exit 1
+fi
+export PORT
+
 fail() {
     echo "ERROR: BACKEND_URL must be an http(s)://host[:port] origin (no path, query, credentials, or whitespace)." >&2
     exit 1
@@ -75,7 +90,7 @@ export BACKEND_PROXY_BUFFERING BACKEND_WEBSOCKETS
 # The image creates this directory for uid 999. Recreate it if /tmp is mounted
 # as an empty writable volume; no writes to /etc/nginx are needed at runtime.
 mkdir -p /tmp/nginx
-envsubst '${BACKEND_WEBSOCKETS}' \
+envsubst '${PORT} ${BACKEND_WEBSOCKETS}' \
     < /etc/nginx/templates/nginx.conf > /tmp/nginx/nginx.conf
 # Always replace the include, including after a restart with proxying disabled.
 : > /tmp/nginx/api.conf

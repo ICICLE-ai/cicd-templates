@@ -31,7 +31,7 @@ exec node dist/main.js
 
 For plain JavaScript, this might be `exec node src/main.js`. The container invokes the script with `sh`, so use POSIX shell. Keep `exec` so Node receives shutdown signals; graceful shutdown belongs in the application.
 
-Listen on `0.0.0.0:8000`, or the port configured for your pod. The image runs as the unprivileged `icicle` user with `/app` as its working directory.
+New services must read runtime `PORT`, defaulting to `5000`, and listen on `0.0.0.0`. For an existing Node HTTP server, use `server.listen(Number(process.env.PORT || "5000"), "0.0.0.0")`. The pod's networking port must match. Existing services can retain port `8000`. The image runs as the unprivileged `icicle` user with `/app` as its working directory.
 
 New application endpoints called by a frontend must use `/api/...`, such as `/api/example/items`. Frontends call that relative path, and the shared proxy preserves the prefix and query string. Keep operational health at `GET /health`.
 
@@ -66,7 +66,7 @@ Download the Dockerfile from the same release used by your deployment workflow:
 
 ```sh
 curl -fsSL \
-  https://raw.githubusercontent.com/icicle-ai/cicd-templates/v2.1.0/node-backend/Dockerfile \
+  https://raw.githubusercontent.com/icicle-ai/cicd-templates/v2.2.0/node-backend/Dockerfile \
   -o Dockerfile
 
 docker build \
@@ -74,7 +74,7 @@ docker build \
   --build-arg BUILD_SHA=local-test \
   -t myservice:test .
 
-docker run --rm -p 8000:8000 myservice:test
+docker run --rm -p 8000:5000 -e PORT=5000 myservice:test
 ```
 
 Match `NODE_VERSION` to your quoted `runtime-version`. Pass `--build-arg NPM_INSTALL_MODE=full` if configured. Add `--build-arg BUILD_VERSION=0.1.0` to test a release version, and pass configured build/runtime system packages as build arguments if needed.

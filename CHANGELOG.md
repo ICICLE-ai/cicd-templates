@@ -1,5 +1,14 @@
 # Release notes
 
+## 2.2.0
+
+- Add an optional reviewed platform catalog for provisioning pods and volumes across all three runtimes. Keep developers at `USER`, require two institute administrators, and verify permissions before starting a new pod.
+- Add protected manual start/stop/restart workflows and Slack notifications when an image needs approval. Existing application deployment and schema 1/2 configurations remain unchanged.
+- Accept optional per-pod runtime secrets as JSON repository secrets in the platform repository, keeping credentials out of the reviewed catalog and logs. Existing pods require deliberate environment updates for credential rotation.
+- Default new provisioned pods to `PORT=5000`, with a runtime override shared by networking and the application. Frontend Nginx honors `PORT` while preserving `8000` when it is unset.
+
+Pin workflows and manual downloads to `v2.2.0`. Existing schema 1/2 configurations remain supported. Frontend runtime `PORT` requires rebuilding with this release; older images continue to use port `8000`. See the [quick start](docs/quick-start.md) and [provisioning guide](docs/provisioning.md).
+
 ## 2.1.0
 
 - Reuse dependency layers and repository/service/runtime build caches; preserve source-dependent npm installs and production lifecycle scripts. Node supports `npm-install-mode: auto|full` and non-secret `.npmrc`.

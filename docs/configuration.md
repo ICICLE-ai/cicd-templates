@@ -15,6 +15,8 @@
 
 See the [annotated configuration](../icicle-service-example.yaml) for field examples. Unknown extension fields warn and are ignored by CI; malformed values fail before building.
 
+Optional [pod and volume provisioning](provisioning.md) uses a separate, strictly validated platform catalog. Do not put provisioning settings in `icicle-service.yaml`; application deployment does not consume them.
+
 Build caches are isolated by calling repository, service, and runtime. Source-only edits reuse dependency layers on the fast path; manifests, lockfiles, and Node `.npmrc` changes invalidate them.
 
 The first build is cold, and cache reuse depends on availability. GitHub stores the Docker layers; package-manager cache mounts are not exported, so a changed lockfile can require fresh downloads on a new runner. See [Docker's cache guidance](https://docs.docker.com/build/ci/github-actions/cache/#cache-mounts).
