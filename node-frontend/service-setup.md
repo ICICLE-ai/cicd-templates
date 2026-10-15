@@ -55,7 +55,9 @@ Unset or empty `BACKEND_URL` preserves the previous static/SPA behavior, includi
 
 ## Configure the deployed frontend
 
-The [deployment workflow](../docs/deployment.md#deployment) manages the existing pod's image. Runtime environment and networking remain platform-managed. Merge this setting into the pod's `environment_variables`, retain its other variables, and restart:
+The [deployment workflow](../docs/deployment.md#deployment) manages the existing pod's image. Runtime environment and networking remain platform-managed. Nginx listens on **5000** by default, matching the Pods default. Set runtime `PORT` to a decimal integer from 1 to 65535 to override it, and configure the pod's networking target port to match. Existing pods targeting 8000 must set `PORT=8000` before upgrading, or change their networking target to 5000.
+
+Merge backend settings into the pod's `environment_variables`, retain its other variables, and restart:
 
 ```json
 {
@@ -91,7 +93,7 @@ Request buffering stays enabled. Invalid values fail startup. For long-lived str
 From your application directory, fetch all build inputs from the same [template release](../docs/versioning.md#versioning) used by your workflow:
 
 ```bash
-TEMPLATE_REF=v2.2.0
+TEMPLATE_REF=v2.2.1
 BASE=https://raw.githubusercontent.com/icicle-ai/cicd-templates/$TEMPLATE_REF
 curl -fsSL "$BASE/node-frontend/Dockerfile" -o Dockerfile
 curl -fsSL "$BASE/node-frontend/nginx.conf" -o nginx.conf
@@ -100,11 +102,21 @@ curl -fsSL "$BASE/node-frontend/entrypoint.sh" -o nginx-entrypoint.sh
 
 docker build --build-arg NODE_VERSION=24.22.0 \
   --build-arg BUILD_SHA=local-test -t myfrontend:test .
-docker run --rm -d --name frontend-test -p 8000:8000 myfrontend:test
+docker run --rm -d --name frontend-test -p 5000:5000 myfrontend:test
 curl --retry 10 --retry-connrefused --retry-delay 1 \
-  http://localhost:8000/healthcheck        # local-test
-curl -I http://localhost:8000/index.html   # Cache-Control: no-store
-curl http://localhost:8000/a/deep/link    # SPA HTML
+  http://localhost:5000/healthcheck        # local-test
+curl -I http://localhost:5000/index.html   # Cache-Control: no-store
+curl http://localhost:5000/a/deep/link    # SPA HTML
+docker stop frontend-test
+```
+
+To retain port 8000, use the same image with a runtime override:
+
+```bash
+docker run --rm -d --name frontend-test -e PORT=8000 \
+  -p 8000:8000 myfrontend:test
+curl --retry 10 --retry-connrefused --retry-delay 1 \
+  http://localhost:8000/healthcheck
 docker stop frontend-test
 ```
 
@@ -114,18 +126,18 @@ To check proxying, create a Docker network and start your backend on it with `--
 docker network create app-network
 # Start your backend with: --network app-network --name backend
 docker run --rm -d --name frontend-test --network app-network \
-  -p 8000:8000 -e BACKEND_URL=http://backend:3000 myfrontend:test
+  -p 5000:5000 -e BACKEND_URL=http://backend:3000 myfrontend:test
 curl --retry 10 --retry-connrefused --retry-delay 1 \
-  http://localhost:8000/healthcheck
-curl 'http://localhost:8000/api/example/items?limit=10'
+  http://localhost:5000/healthcheck
+curl 'http://localhost:5000/api/example/items?limit=10'
 docker stop frontend-test
 ```
 
-Use an endpoint your backend implements, with any required credentials or body. Check its logs for the complete `/api/...` path and query. Stop the first frontend before reusing port 8000. The downloaded build inputs are temporary; do not commit modified copies.
+Use an endpoint your backend implements, with any required credentials or body. Check its logs for the complete `/api/...` path and query. Stop the first frontend before reusing its container name or port. The downloaded build inputs are temporary; do not commit modified copies.
 
 ## Runtime behavior
 
-Nginx serves `/app/site` on port `8000` as the unprivileged `icicle` user. Startup renders and validates configuration under `/tmp/nginx`; graceful shutdown lets active requests finish.
+Nginx serves `/app/site` on runtime `PORT` (default `5000`) as the unprivileged `icicle` user. Startup renders and validates configuration under `/tmp/nginx`; graceful shutdown lets active requests finish. Invalid ports fail startup. Rebuild once with templates v2.2.1 or later to adopt this support; subsequent `PORT` changes require only a restart.
 
 - `/healthcheck` returns the build SHA used by CI to verify rollout.
 - `/assets/` gets one-year immutable caching only for a filename token separated by a dot or dash before its extension: at least eight hexadecimal characters, or at least eight base64url characters containing both a letter and digit (for example, `app.abcdef12.js` or `app-Abcd1234.js`). Matching files **must be content-versioned**: change the filename whenever the content changes. Other assets use `no-cache` and must revalidate.

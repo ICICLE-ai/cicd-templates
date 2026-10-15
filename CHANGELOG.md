@@ -1,5 +1,10 @@
 # Release notes
 
+## 2.2.1
+
+- Frontend Nginx listens on port `5000` by default. Set runtime `PORT` to override it without rebuilding; existing pods targeting port `8000` must set `PORT=8000` when upgrading. Match the pod networking target port to the listener.
+- Validate `PORT` before rendering the Nginx configuration. Backend application ports are unchanged.
+
 ## 2.2.0
 
 - Add service schema 3 with one `service-name` for the registry image and deployment pod. Enforce pod naming rules and reject a separate `pod-name`; schemas 1 and 2 retain their existing behavior.

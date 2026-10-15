@@ -1,6 +1,8 @@
 # Deployment
 
-Services run as unprivileged `icicle` (UID 999) and normally listen on **`0.0.0.0:8000`**. Backends start with a POSIX shell script ending in `exec`; applications handle shutdown signals. Keep the frontend image's shared entrypoint and allow time for graceful shutdown.
+Services run as unprivileged `icicle` (UID 999). Frontend Nginx listens on **`0.0.0.0:5000`** by default; runtime `PORT` overrides it. Set the Tapis pod's networking target port to match. Existing frontend pods targeting 8000 can keep that port by setting `PORT=8000` before upgrading.
+
+Backend ports are application-controlled; the Python and Node examples use 8000. Setting `PORT` changes a backend's port only if its application or startup script reads it. Backends start with a POSIX shell script ending in `exec`; applications handle shutdown signals. Keep the frontend image's shared entrypoint and allow time for graceful shutdown.
 
 New frontend API clients **must use relative `/api/...` requests**. Backends must serve the same full paths. Frontend proxying is optional for compatibility: set runtime `BACKEND_URL` to enable it, or retain existing ingress routing. See the [frontend guide](../node-frontend/service-setup.md). CI validates configuration, not application route implementations.
 

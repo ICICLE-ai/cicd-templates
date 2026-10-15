@@ -1,12 +1,12 @@
 # Versioning
 
-Pin the reusable workflow and manual template downloads to **`v2.2.0`**. CI fetches the Dockerfiles, startup files, and helpers from the workflow's exact commit. Update the pin deliberately when adopting another tested release.
+Pin the reusable workflow and manual template downloads to **`v2.2.1`**. CI fetches the Dockerfiles, startup files, and helpers from the workflow's exact commit. Update the pin deliberately when adopting another tested release.
 
 These settings are independent:
 
 | Version | Meaning |
 |---|---|
-| Template release (`v2.2.0`) | Shared Dockerfiles, workflow, and runtime files. |
+| Template release (`v2.2.1`) | Shared Dockerfiles, workflow, and runtime files. |
 | `schema-version` | Rules for the service configuration; this release supports 1, 2, and 3. |
 | `service-version` | Application release. |
 | `runtime-version` | Python or Node interpreter/toolchain version. |

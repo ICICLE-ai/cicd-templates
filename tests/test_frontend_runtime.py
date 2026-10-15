@@ -2,8 +2,8 @@
 
 Run: python3 -m unittest discover -s tests -v
 Requires nginx, envsubst, and openssl; NGINX_BINARY can select a local binary.
-Only fixed filesystem paths and the listen port are rebased into a temporary
-directory, so tests can run without root or modifying the host's Nginx config.
+Only fixed filesystem paths are rebased into a temporary directory. The real
+PORT setting selects a free port without modifying the host's Nginx config.
 """
 
 import base64
@@ -117,9 +117,9 @@ def upstream(tls_context=None, request_started=None, release_response=None):
 
 
 class Frontend:
-    def __init__(self, binary, directory, ca_certificate=None, options=None):
+    def __init__(self, binary, directory, ca_certificate=None, options=None, port=None):
         self.directory = Path(directory)
-        self.port = free_port()
+        self.port = free_port() if port is None else port
         self.runtime = self.directory / "runtime"
         self.site = self.directory / "site"
         templates = self.directory / "templates"
@@ -148,9 +148,7 @@ class Frontend:
         def rebase(text):
             for source, destination in replacements.items():
                 text = text.replace(source, destination)
-            return text.replace("listen      8000;", f"listen      {self.port};").replace(
-                "listen      [::]:8000;", f"listen      [::]:{self.port};"
-            )
+            return text
 
         for name in ("nginx.conf", "nginx-api.conf.template"):
             # nginx.conf remains the authoritative source name in the repo;
@@ -166,6 +164,7 @@ class Frontend:
                      "BACKEND_READ_TIMEOUT_SECONDS", "BACKEND_SEND_TIMEOUT_SECONDS",
                      "BACKEND_STREAMING", "BACKEND_WEBSOCKETS"):
             self.environment.pop(name, None)
+        self.environment["PORT"] = str(self.port)
         self.environment.update(options or {})
         # An unrestricted envsubst would destroy these actual Nginx variables.
         self.environment.update({name: "BROKEN_NGINX_VARIABLE" for name in (
@@ -223,6 +222,53 @@ class Frontend:
             self.output.close()
 
 
+class FrontendPortTests(unittest.TestCase):
+    """Exercise the real entrypoint without binding privileged or fixed ports."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="frontend-port-")
+        self.addCleanup(temporary.cleanup)
+        directory = Path(temporary.name)
+        # The server is a sentinel: invalid PORT values must fail before it runs.
+        # Real Nginx listening and container defaults are covered below/in images.
+        nginx = directory / "nginx-stub"
+        nginx.write_text("#!/bin/sh\nexit 0\n")
+        nginx.chmod(0o755)
+        self.frontend = Frontend(nginx, directory, port=5000)
+
+    def run_entrypoint(self, port=UNSET):
+        environment = self.frontend.environment.copy()
+        if port is UNSET:
+            environment.pop("PORT")
+        else:
+            environment["PORT"] = port
+        return subprocess.run(
+            ["sh", str(self.frontend.entrypoint)], env=environment,
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+
+    def test_invalid_ports_fail_before_rendering_or_starting(self):
+        for port in ("", "0", "-1", "01", "05000", "65536", "999999999999999999999",
+                     "1.5", "5000/tcp", "+5000", " 5000", "5000\n", "5000; return 200;"):
+            with self.subTest(port=port):
+                result = self.run_entrypoint(port)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("PORT", result.stderr)
+                self.assertFalse(self.frontend.runtime.exists())
+
+    @unittest.skipUnless(shutil.which("envsubst"), "Port rendering tests need envsubst")
+    def test_default_override_and_valid_boundaries_render_both_listeners(self):
+        for supplied, expected in ((UNSET, 5000), ("8000", 8000), ("1", 1), ("65535", 65535)):
+            with self.subTest(port=supplied):
+                result = self.run_entrypoint(supplied)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                config = (self.frontend.runtime / "nginx.conf").read_text()
+                self.assertRegex(config, rf"listen\s+{expected};")
+                self.assertRegex(config, rf"listen\s+\[::\]:{expected};")
+                self.assertIn("$uri", config)
+                self.assertNotIn("BROKEN_NGINX_VARIABLE", config)
+
+
 class FrontendRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -277,6 +323,10 @@ class FrontendRuntimeTests(unittest.TestCase):
         frontend = self.frontend()
         self.assert_static_behavior(frontend)
         self.assertEqual(frontend.request("/api/example/items?x=1")[2], INDEX)
+
+    def test_explicit_port_preserves_previous_8000_listener(self):
+        frontend = self.frontend(port=8000)
+        self.assert_static_behavior(frontend)
 
     def test_empty_backend_preserves_existing_api_fallback(self):
         frontend = self.frontend("")
