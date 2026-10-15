@@ -1,6 +1,6 @@
 # Quick start
 
-Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.2.1`**.
+Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.2.2`**.
 
 New services use schema 3: `service-name` names both the image and deployment pod. Existing schemas 1 and 2 remain supported; see [configuration and migration](configuration.md).
 
@@ -46,7 +46,7 @@ permissions:
   packages: write
 jobs:
   deploy:
-    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.1
+    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.2
     secrets:
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
@@ -56,6 +56,6 @@ jobs:
 
 `TAPIS_TOKEN` is required. Omit both registry secrets to authenticate GHCR with `github.actor` and `github.token`; the package must grant this calling repository write access. To use another registry credential, provide both `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`. `HEALTHCHECK_TOKEN` is optional for health endpoints requiring a bearer token. You can also copy the [starter workflow](../deploy.yaml).
 
-**4. Commit and push to your service's `main` branch.** Check the Actions run for build and rollout results.
+**4. Commit and push to your service's `main` branch.** CI builds and deploys `ghcr.io/icicle-ai/myservice:0.1.0` from this example. Bump `service-version` for each new deployable build to avoid reusing a cached image. Check the Actions run for build and rollout results.
 
 For help, contact `#icicle-service-support` or open an [issue](https://github.com/icicle-ai/cicd-templates/issues).

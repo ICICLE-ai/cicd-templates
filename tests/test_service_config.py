@@ -468,10 +468,14 @@ class ServiceConfigTests(unittest.TestCase):
     def test_cli_identity_reaches_image_and_deploy_arguments_for_all_schemas(self):
         steps = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)["jobs"]["deploy"]["steps"]
         image = next(step for step in steps if step.get("name") == "Compute image references")
+        build = next(step for step in steps if step.get("name") == "Build and push")
         deploy = next(step for step in steps if step.get("name") == "Deploy image and verify rollout")
         self.assertEqual(image["env"]["SERVICE_NAME"], "${{ steps.config.outputs.service_name }}")
+        self.assertEqual(image["env"]["SERVICE_VERSION"], "${{ steps.config.outputs.service_version }}")
+        self.assertTrue({"BUILD_SHA", "RUN_ID", "RUN_ATTEMPT"}.isdisjoint(image["env"]))
         self.assertEqual(deploy["env"]["POD_NAME"], "${{ steps.config.outputs.pod_name }}")
-        self.assertEqual(deploy["env"]["IMAGE"], "${{ steps.image.outputs.deploy_tag }}")
+        self.assertEqual(build["with"]["tags"].strip(), "${{ steps.image.outputs.tag }}")
+        self.assertEqual(deploy["env"]["IMAGE"], build["with"]["tags"].strip())
 
         # Run the actual workflow shell blocks, recording the deployment CLI
         # arguments in place of making a Tapis request.
@@ -491,9 +495,11 @@ class ServiceConfigTests(unittest.TestCase):
         for version, service, pod in ((1, "existing-service", "existingpod"),
                                       (2, "exampleservice", "exampleservice"),
                                       (3, "exampleservice", "exampleservice")):
-            for runtime in ("python", "node-backend", "node-frontend"):
-                with self.subTest(schema=version, runtime=runtime):
+            for runtime, service_version in (("python", "2.4.6"), ("node-backend", "3.0.0"),
+                                             ("node-frontend", "1.2.3")):
+                with self.subTest(schema=version, runtime=runtime, service_version=service_version):
                     changes = {"schema-version": version, "service-name": service,
+                               "service-version": service_version,
                                "runtime-type": runtime,
                                "runtime-version": "3.13" if runtime == "python" else "22.11"}
                     if version == 3:
@@ -508,19 +514,19 @@ class ServiceConfigTests(unittest.TestCase):
                     environment = {
                         **os.environ, "REGISTRY": "ghcr.io", "OWNER": "Example-Org",
                         "SERVICE_NAME": values["service_name"], "SERVICE_VERSION": values["service_version"],
-                        "BUILD_SHA": sha, "RUN_ID": "123", "RUN_ATTEMPT": "1",
                         "GITHUB_OUTPUT": str(image_output),
                     }
+                    for variable in ("BUILD_SHA", "RUN_ID", "RUN_ATTEMPT"):
+                        environment.pop(variable, None)
                     result = subprocess.run(["bash", "-eu", "-c", image["run"]], env=environment,
                                             capture_output=True, text=True, timeout=5, check=False)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     images = dict(line.split("=", 1) for line in image_output.read_text().splitlines())
-                    expected_image = f"ghcr.io/example-org/{service}:sha-{sha}-123-1"
-                    self.assertEqual(images["tag"], f"ghcr.io/example-org/{service}:1.2.3")
-                    self.assertEqual(images["deploy_tag"], expected_image)
+                    expected_image = f"ghcr.io/example-org/{service}:{service_version}"
+                    self.assertEqual(images, {"tag": expected_image})
                     environment.update(
                         POD_NAME=values["pod_name"], RUNTIME=values["runtime_type"],
-                        IMAGE=images["deploy_tag"], IMAGE_DIGEST="sha256:" + "b" * 64,
+                        IMAGE=images["tag"], IMAGE_DIGEST="sha256:" + "b" * 64, BUILD_SHA=sha,
                         HEALTH_URL=values["health_url"], ROLLOUT_TIMEOUT=values["rollout_timeout"],
                         TEMPLATES_DIR=str(self.directory), DEPLOY_ARGUMENTS=str(arguments),
                         GITHUB_STEP_SUMMARY=str(self.directory / "summary"),

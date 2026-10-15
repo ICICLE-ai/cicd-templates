@@ -22,7 +22,7 @@ from scripts.deploy_tapis import (
 )
 
 SHA = "a" * 40
-IMAGE = "ghcr.io/example/service:sha-" + SHA + "-123-1"
+IMAGE = "ghcr.io/example/service:1.2.3"
 POD = {
     "image": "ghcr.io/example/service:old",
     "status": "AVAILABLE",
@@ -96,10 +96,34 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual(result["image"], IMAGE)
                 self.assertEqual([call[0] for call in client.calls[:4]], ["GET", "PUT", "GET", "GET"])
                 self.assertEqual(client.calls[1][2], {"image": IMAGE})
+                self.assertEqual(client.calls[1][1], "https://tapis.example/v3/pods/servicepod")
+                self.assertEqual(client.calls[3][1], "https://tapis.example/v3/pods/servicepod/restart")
                 for key in ("environment_variables", "networking", "resources"):
                     self.assertEqual(client.configured[key], POD[key])
                 suffix = "/healthcheck" if runtime == "node-frontend" else "/health"
                 self.assertEqual(result["health_url"], "https://service.pods.example" + suffix)
+
+    def test_redeploying_same_version_still_restarts_and_requires_current_build(self):
+        for runtime in ("python", "node-backend", "node-frontend"):
+            old_health = (b"old" if runtime == "node-frontend" else
+                          b'{"status":"ok","build_sha":"old"}')
+            current_health = (SHA.encode() if runtime == "node-frontend" else
+                              json.dumps({"status": "ok", "build_sha": SHA}).encode())
+            with self.subTest(runtime=runtime, current_build=True):
+                client = FakeClient(before=dict(POD, image=IMAGE),
+                                    health=[(200, old_health), (200, current_health)])
+                result = self.run_deploy(client, runtime)
+                self.assertEqual(result["previous_image"], IMAGE)
+                self.assertEqual(result["image"], IMAGE)
+                self.assertEqual(result["build_sha"], SHA)
+                self.assertEqual(sum(call[0] == "PUT" for call in client.calls), 1)
+                self.assertEqual(sum(call[1].endswith("/restart") for call in client.calls), 1)
+                self.assertEqual(sum(not call[3] for call in client.calls), 2)
+            with self.subTest(runtime=runtime, current_build=False):
+                client = FakeClient(before=dict(POD, image=IMAGE), health=[(200, old_health)])
+                with self.assertRaisesRegex(DeploymentError, "expected build SHA not confirmed"):
+                    self.run_deploy(client, runtime)
+                self.assertTrue(client.restarted)
 
     def test_superseded_push_skips_immediately_before_mutation(self):
         client = FakeClient()
