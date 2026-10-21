@@ -3,6 +3,7 @@
 import argparse
 import http.client
 import json
+import logging
 import os
 import re
 import sys
@@ -10,6 +11,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+if __package__:
+    from .logging_utils import add_debug_argument, configure_logging
+else:
+    from logging_utils import add_debug_argument, configure_logging
+
+logger = logging.getLogger(__name__)
 
 
 class DeploymentError(RuntimeError):
@@ -39,6 +47,7 @@ class HTTPClient:
         self.opener = urllib.request.build_opener(NoRedirect())
 
     def request(self, method, url, *, payload=None, api=False, timeout=10):
+        checked_url(url)
         headers = {"Accept": "application/json" if api else "*/*"}
         if api:
             headers["X-Tapis-Token"] = self.token
@@ -51,16 +60,25 @@ class HTTPClient:
             data = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        started = time.monotonic()
+        logger.info("Sending HTTP %s %s", method, url)
+        logger.debug("Request timeout: %.2fs; JSON payload present: %s", timeout, payload is not None)
         try:
             with self.opener.open(request, timeout=timeout) as response:
+                logger.info("HTTP %s %s -> %s (%.3fs)", method, url,
+                            response.status, time.monotonic() - started)
                 body = response.read(1024 * 1024 + 1)
                 if len(body) > 1024 * 1024:
                     raise DeploymentError("Response exceeded the 1 MiB limit")
                 return response.status, body
         except urllib.error.HTTPError as error:
             # Do not log API bodies: pod definitions may contain secrets.
+            logger.info("HTTP %s %s -> %s (%.3fs)", method, url,
+                        error.code, time.monotonic() - started)
             return error.code, b""
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as error:
+            logger.warning("HTTP %s %s failed (%s; %.3fs)", method, url,
+                           type(error).__name__, time.monotonic() - started)
             raise HTTPConnectionError("HTTP connection failed") from error
 
 
@@ -142,7 +160,10 @@ def read_pod(client, url, *, deadline, clock, sleep, attempts=3):
                          or error.status in {408, 429, 500, 502, 503, 504})
             if not transient or attempt == attempts - 1:
                 raise
-            sleep(min(2 ** attempt, max(0, deadline - clock())))
+            delay = min(2 ** attempt, max(0, deadline - clock()))
+            logger.debug("Pod read attempt %s/%s failed: %s; retrying in %.2fs",
+                         attempt + 1, attempts, error, delay)
+            sleep(delay)
 
 
 def current_push(env, build_sha, *, opener=None):
@@ -165,8 +186,12 @@ def current_push(env, build_sha, *, opener=None):
         "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     })
+    started = time.monotonic()
+    logger.info("Sending HTTP GET %s (branch freshness check)", url)
     try:
         with (opener or urllib.request.build_opener(NoRedirect())).open(request, timeout=10) as response:
+            logger.info("HTTP GET %s -> %s (%.3fs)", url, response.status,
+                        time.monotonic() - started)
             body = response.read(1024 * 1024 + 1)
             if len(body) > 1024 * 1024:
                 raise ValueError("oversized response")
@@ -175,8 +200,12 @@ def current_push(env, build_sha, *, opener=None):
                 raise ValueError("invalid branch SHA")
     except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError,
             ValueError, KeyError, TypeError) as error:
+        logger.warning("Branch freshness request failed (%s; HTTP %s; %.3fs)",
+                       type(error).__name__, getattr(error, "code", "unavailable"),
+                       time.monotonic() - started)
         # Never print credentials, response bodies, or request headers.
         raise DeploymentError("Could not verify current branch HEAD; pod was not changed") from error
+    logger.debug("Branch HEAD matches requested build: %s", sha == build_sha)
     return sha == build_sha
 
 
@@ -196,7 +225,7 @@ def matches_health(body, runtime, expected_sha):
 
 def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
            override_url="", timeout=300, interval=5, clock=time.monotonic,
-           sleep=time.sleep, log=print, should_deploy=lambda: True):
+           sleep=time.sleep, log=logger.info, should_deploy=lambda: True):
     """Mutate only image; keep all deployment-owned environment/network fields."""
     if not re.fullmatch(r"[a-z][a-z0-9]{3,63}", pod_name):
         raise DeploymentError("Invalid pod-name")
@@ -210,6 +239,8 @@ def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
     deadline = clock() + timeout
     before = read_pod(client, pod_url, deadline=deadline, clock=clock, sleep=sleep)
     endpoint = health_url(before, runtime, override_url)
+    logger.debug("Rollout timeout: %ss; poll interval: %ss; health endpoint: %s",
+                 timeout, interval, endpoint)
     previous_start = before.get("start_instance_ts")
     previous_state = before.get("status", "UNKNOWN")
     previous_image = before.get("image", "")
@@ -291,6 +322,7 @@ def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
                         last_problem = f"health HTTP {status}; expected build SHA not confirmed"
             else:
                 last_problem = f"pod {state}; waiting for a new instance"
+        logger.debug("Rollout pending: %s; %.2fs remaining", last_problem, max(0, deadline - clock()))
         sleep(min(interval, max(0, deadline - clock())))
     raise DeploymentError(f"Rollout timed out after {timeout}s: {last_problem}. "
                           "The requested image is still configured; inspect pod logs before retrying or rolling back.")
@@ -305,7 +337,9 @@ def main():
     parser.add_argument("--build-sha", required=True)
     parser.add_argument("--health-url", default="")
     parser.add_argument("--timeout", type=int, default=300)
+    add_debug_argument(parser)
     args = parser.parse_args()
+    configure_logging(args.debug)
     token = os.environ.get("TAPIS_TOKEN", "")
     if not token:
         parser.error("TAPIS_TOKEN is required in the environment")

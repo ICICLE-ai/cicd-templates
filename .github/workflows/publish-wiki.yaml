@@ -6,12 +6,14 @@ on:
     paths:
       - '**/*.md'
       - scripts/render_wiki.py
+      - scripts/logging_utils.py
       - .github/workflows/publish-wiki.yaml
   pull_request:
     branches: [main]
     paths:
       - '**/*.md'
       - scripts/render_wiki.py
+      - scripts/logging_utils.py
       - .github/workflows/publish-wiki.yaml
   workflow_dispatch:
 

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import math
 import re
 import sys
@@ -11,6 +12,13 @@ from urllib.parse import urlsplit
 
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker, validators
+
+if __package__:
+    from .logging_utils import add_debug_argument, configure_logging
+else:
+    from logging_utils import add_debug_argument, configure_logging
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_PATHS = {
     version: Path(__file__).resolve().parents[1] / f"schema/icicle-service-v{version}.schema.json"
@@ -131,6 +139,7 @@ def _check_health_url(value):
 
 def load_config(path):
     path = Path(path)
+    logger.info("Validating configuration: %s", path)
     warnings = []
     try:
         source = path.read_text(encoding="utf-8")
@@ -162,6 +171,7 @@ def load_config(path):
             config["runtime-version"] = spelling
             warnings.append("runtime-version was numeric; quote it as a MAJOR.MINOR string")
 
+    logger.debug("Using schema version %s", version)
     schema = json.loads(SCHEMA_PATHS[version].read_text(encoding="utf-8"))
     known = schema["properties"]
     for name, value in config.items():
@@ -191,7 +201,9 @@ def main(argv=None):
     parser.add_argument("config", nargs="?", default="icicle-service.yaml")
     parser.add_argument("--github-output", type=Path, help="Append validated GitHub Actions step outputs")
     parser.add_argument("--json", action="store_true", help="Print normalized configuration as JSON")
+    add_debug_argument(parser)
     args = parser.parse_args(argv)
+    configure_logging(args.debug)
     try:
         result = load_config(args.config)
         normalized = json.dumps(result.config, indent=2, allow_nan=False)
@@ -199,6 +211,7 @@ def main(argv=None):
         # Validate everything before opening the runner output file. Invalid
         # configuration never leaves partial outputs behind.
         if args.github_output:
+            logger.debug("Appending validated GitHub Actions outputs")
             with args.github_output.open("a", encoding="utf-8") as output:
                 output.write(payload)
     except (ConfigError, OSError, ValueError) as error:

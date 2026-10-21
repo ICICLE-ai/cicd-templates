@@ -1,10 +1,18 @@
 """Render the GitHub wiki from the repository's authoritative Markdown files."""
 
 import argparse
+import logging
 import posixpath
 import re
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
+
+if __package__:
+    from .logging_utils import add_debug_argument, configure_logging
+else:
+    from logging_utils import add_debug_argument, configure_logging
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/icicle-ai/cicd-templates"
@@ -71,8 +79,10 @@ def rewrite_links(text, source):
 
 
 def render(output):
+    logger.info("Rendering wiki to %s", output)
     rendered = {}
     for source, page in PAGES.items():
+        logger.debug("Rendering %s as %s", source, page)
         body = (ROOT / source).read_text(encoding="utf-8")
         footer = f"_Source: [{source}]({REPOSITORY}/blob/main/{source}). Edit the repository file; changes on main publish here automatically._"
         rendered[page] = f"{rewrite_links(body, source).rstrip()}\n\n---\n\n{footer}\n"
@@ -101,7 +111,9 @@ def main():
     parser.add_argument(
         "output", type=Path, help="Directory for generated wiki Markdown files"
     )
+    add_debug_argument(parser)
     args = parser.parse_args()
+    configure_logging(args.debug)
     try:
         count = render(args.output)
     except (OSError, ValueError) as error:

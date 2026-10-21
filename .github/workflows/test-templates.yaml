@@ -45,7 +45,7 @@ jobs:
               files = subprocess.check_output(['git', 'diff', '--name-only', '-z', base, 'HEAD']).decode().split('\0')
               patterns = ['python/**', 'node-backend/**', 'node-frontend/**', 'schema/**',
                           'tests/**', 'icicle-service*.yaml', 'VERSION', 'deploy.yaml',
-                          'scripts/deploy_tapis.py', 'scripts/validate_config.py', 'scripts/requirements.txt',
+                          'scripts/deploy_tapis.py', 'scripts/validate_config.py', 'scripts/logging_utils.py', 'scripts/requirements.txt',
                           '.github/workflows/deploy-service.yaml', '.github/workflows/test-templates.yaml',
                           '.github/dependabot.yml']
               changed = any(fnmatch.fnmatch(path, pattern) for path in files

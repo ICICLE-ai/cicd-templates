@@ -24,3 +24,39 @@ The Actions runner must reach the health endpoint. Health redirects are rejected
 Safe GET requests retry transient failures; image updates and restarts are never blindly retried. Automatic push deployments check the branch head immediately before rollout and skip stale builds. An explicit `workflow_dispatch` run can deploy an older selected ref for rollback.
 
 A failed rollout fails CI and leaves the requested image configured. Inspect the reported previous image, pod status, and logs before retrying or rolling back. CI does not automatically roll back.
+
+## Request logs and debug mode
+
+The Python deployment helper logs each outgoing HTTP method and URL, HTTP status,
+response-header timing, and connection failures, including Tapis updates/restarts,
+health checks, and the GitHub branch freshness check. Request and response headers
+and bodies are omitted, including in debug mode, to keep tokens and pod secrets
+out of logs.
+
+To debug a GitHub Actions run:
+
+- Open the run under **Actions**, choose **Re-run jobs**, and select **Enable debug logging**.
+- Or use `gh run rerun RUN_ID --debug` (add `--failed` to rerun only failed jobs).
+- For ongoing step diagnostics, set the repository Actions variable or secret
+  `ACTIONS_STEP_DEBUG` to `true` in the repository running the workflow.
+  `ACTIONS_RUNNER_DEBUG=true` separately enables runner diagnostic files.
+
+See GitHub's [debug logging documentation](https://docs.github.com/en/actions/how-tos/monitor-workflows/enable-debug-logging)
+and [rerun instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs).
+The scripts automatically detect GitHub's `RUNNER_DEBUG=1` and also accept
+`ACTIONS_STEP_DEBUG=true` when supplied in their environment. They print
+`DEBUG MODE ENABLED` with the activation source. Deployment debug logs add request
+timeouts, read retries, branch freshness results, and reasons rollout checks are
+still waiting. Debug mode performs the same deployment operations as a normal run.
+
+All three Python tools also accept `--debug` locally:
+
+```sh
+python scripts/validate_config.py icicle-service.yaml --debug
+python scripts/render_wiki.py /tmp/wiki-preview --debug
+# Add --debug to your usual deploy_tapis.py invocation (requires TAPIS_TOKEN).
+```
+
+Logs go to stderr so `validate_config.py --json` remains valid JSON on stdout.
+Consumers pinned to a template release need a release containing these changes
+before the new script logging is available in their workflow.
