@@ -253,7 +253,10 @@ def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
     log(f"Deploying {image} to {pod_name}; previous image: {previous_image}")
     # Minimal update preserves environment_variables, networking, commands,
     # volumes, resources, and all other settings owned by the platform team.
-    api_result(client, "PUT", pod_url, {"image": image}, timeout=min(10, deadline - clock()))
+    if previous_image == image:
+        log("Image already configured; skipping PUT and proceeding to restart")
+    else:
+        api_result(client, "PUT", pod_url, {"image": image}, timeout=min(10, deadline - clock()))
     configured = read_pod(client, pod_url, deadline=deadline, clock=clock, sleep=sleep)
     if configured.get("image") != image:
         raise DeploymentError("Tapis did not persist the requested image; restart was not requested")
@@ -261,6 +264,7 @@ def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
     # repeated restarts. A subsequent workflow run can safely deploy again.
     if clock() >= deadline:
         raise DeploymentError("Deployment deadline expired before restart; requested image remains configured")
+    log(f"Requesting restart of {pod_name}")
     api_result(client, "GET", pod_url + "/restart", timeout=min(10, deadline - clock()))
     # A restart acknowledgement is not evidence that the serving instance
     # changed. Sites without timestamps must expose lifecycle progress in a

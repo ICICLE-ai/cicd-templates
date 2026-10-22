@@ -56,6 +56,6 @@ jobs:
 
 `TAPIS_TOKEN` is required. Omit both registry secrets to authenticate GHCR with `github.actor` and `github.token`; the package must grant this calling repository write access. To use another registry credential, provide both `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`. `HEALTHCHECK_TOKEN` is optional for health endpoints requiring a bearer token. You can also copy the [starter workflow](../deploy.yaml).
 
-**4. Commit and push to your service's `main` branch.** CI builds and deploys `ghcr.io/icicle-ai/myservice:0.1.0` from this example. Bump `service-version` for each new deployable build to avoid reusing a cached image. Check the Actions run for build and rollout results.
+**4. Commit and push to your service's `main` branch.** CI builds and pushes `ghcr.io/icicle-ai/myservice:0.1.0` from this example, then deploys it by digest. Bump `service-version` for each new deployable build to keep release tags distinct. Check the Actions run for build and rollout results.
 
 For help, contact `#icicle-service-support` or open an [issue](https://github.com/icicle-ai/cicd-templates/issues).

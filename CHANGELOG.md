@@ -1,5 +1,10 @@
 # Release notes
 
+## Unreleased
+
+- Deploy the image digest returned by the build while retaining the service-version tag for publication and summaries.
+- Skip the image PUT when the pod already has the exact image reference configured; still restart and verify the new instance and build SHA.
+
 ## 2.2.1
 
 Reissued on 2026-10-15 with service-version image tags.

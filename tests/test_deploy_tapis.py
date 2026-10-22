@@ -22,7 +22,7 @@ from scripts.deploy_tapis import (
 )
 
 SHA = "a" * 40
-IMAGE = "ghcr.io/example/service:1.2.3"
+IMAGE = "ghcr.io/example/service@sha256:" + "b" * 64
 POD = {
     "image": "ghcr.io/example/service:old",
     "status": "AVAILABLE",
@@ -85,7 +85,7 @@ class DeploymentTests(unittest.TestCase):
         clock = FakeClock()
         return deploy(client, base_url="https://tapis.example", pod_name="servicepod",
                       image=IMAGE, runtime=runtime, build_sha=SHA, timeout=3, interval=1,
-                      clock=clock.now, sleep=clock.sleep, log=lambda _: None, **kwargs)
+                      clock=clock.now, sleep=clock.sleep, log=kwargs.pop("log", lambda _: None), **kwargs)
 
     def test_updates_only_image_before_restart_and_verifies_each_runtime(self):
         for runtime in ("python", "node-backend", "node-frontend"):
@@ -103,7 +103,7 @@ class DeploymentTests(unittest.TestCase):
                 suffix = "/healthcheck" if runtime == "node-frontend" else "/health"
                 self.assertEqual(result["health_url"], "https://service.pods.example" + suffix)
 
-    def test_redeploying_same_version_still_restarts_and_requires_current_build(self):
+    def test_same_digest_skips_put_but_still_restarts_and_requires_current_build(self):
         for runtime in ("python", "node-backend", "node-frontend"):
             old_health = (b"old" if runtime == "node-frontend" else
                           b'{"status":"ok","build_sha":"old"}')
@@ -112,11 +112,14 @@ class DeploymentTests(unittest.TestCase):
             with self.subTest(runtime=runtime, current_build=True):
                 client = FakeClient(before=dict(POD, image=IMAGE),
                                     health=[(200, old_health), (200, current_health)])
-                result = self.run_deploy(client, runtime)
+                messages = []
+                client.put_status = 400  # Any attempted update would fail.
+                result = self.run_deploy(client, runtime, log=messages.append)
+                self.assertTrue(any("skipping PUT" in message for message in messages))
                 self.assertEqual(result["previous_image"], IMAGE)
                 self.assertEqual(result["image"], IMAGE)
                 self.assertEqual(result["build_sha"], SHA)
-                self.assertEqual(sum(call[0] == "PUT" for call in client.calls), 1)
+                self.assertEqual(sum(call[0] == "PUT" for call in client.calls), 0)
                 self.assertEqual(sum(call[1].endswith("/restart") for call in client.calls), 1)
                 self.assertEqual(sum(not call[3] for call in client.calls), 2)
             with self.subTest(runtime=runtime, current_build=False):

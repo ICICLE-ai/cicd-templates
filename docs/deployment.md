@@ -13,11 +13,11 @@ New frontend API clients **must use relative `/api/...` requests**. Backends mus
 
 CI also supplies `BUILD_VERSION` to backends. Prefer it for health version metadata, with package metadata as a local fallback. Health routes stay outside `/api`.
 
-CI builds, pushes, and deploys the image tagged with `service-version`. For `service-name: myservice` and `service-version: 1.4.2`, that image is `ghcr.io/icicle-ai/myservice:1.4.2`. This application version is independent of the shared template release.
+CI builds and pushes the image tagged with `service-version`, then deploys the exact digest returned by that build. For `service-name: myservice` and `service-version: 1.4.2`, that image is `ghcr.io/icicle-ai/myservice:1.4.2`. This application version is independent of the shared template release.
 
-The Python deployment helper sends `PUT /v3/pods/myservice` with `{"image":"ghcr.io/icicle-ai/myservice:1.4.2"}` as JSON, then calls `GET /v3/pods/myservice/restart`. It verifies that a new instance serves the expected build SHA; CI records the image digest in the Actions summary. The pod must already exist; its environment, networking, volumes, and resources remain platform-managed.
+The Python deployment helper sends `PUT /v3/pods/myservice` with `{"image":"ghcr.io/icicle-ai/myservice@sha256:<digest>"}` as JSON, then calls `GET /v3/pods/myservice/restart`. It verifies that a new instance serves the expected build SHA; CI records the image digest in the Actions summary. If the pod already has the exact image-reference string configured, the helper logs that it is skipping PUT. It still reads back the configuration, requests a restart, and verifies the new instance and build SHA. The pod must already exist; its environment, networking, volumes, and resources remain platform-managed.
 
-Bump `service-version` for each new deployable build. Reusing a tag can serve a cached image and fail the SHA health check. CI does not bump versions or prevent tag reuse.
+Bump `service-version` for each new deployable build. Deployment by digest avoids stale tag caching, while distinct version tags keep releases easy to identify. CI does not bump versions or prevent tag reuse.
 
 The Actions runner must reach the health endpoint. Health redirects are rejected; an optional `HEALTHCHECK_TOKEN` goes only to that endpoint, never in the Tapis API request. Assign one repository to each pod: deployment serialization is scoped to the repository.
 

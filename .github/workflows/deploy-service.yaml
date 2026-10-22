@@ -199,9 +199,15 @@ jobs:
           ROLLOUT_TIMEOUT: ${{ steps.config.outputs.rollout_timeout }}
         run: |
           set -eu
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "ERROR: Build did not return a valid SHA-256 image digest; deployment was not attempted" >&2
+            exit 1
+          fi
+          DEPLOY_IMAGE="${IMAGE%:*}@${IMAGE_DIGEST}"
           printf 'Built image: %s\nDigest: %s\n' "$IMAGE" "$IMAGE_DIGEST"
-          printf 'Image digest: `%s`\n\n' "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Deploying image: %s\n' "$DEPLOY_IMAGE"
+          printf 'Built image: `%s`\n\nImage digest: `%s`\n\n' "$IMAGE" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
           python "$TEMPLATES_DIR/scripts/deploy_tapis.py" \
-            --pod "$POD_NAME" --image "$IMAGE" --runtime "$RUNTIME" \
+            --pod "$POD_NAME" --image "$DEPLOY_IMAGE" --runtime "$RUNTIME" \
             --build-sha "$BUILD_SHA" --health-url "$HEALTH_URL" \
             --timeout "$ROLLOUT_TIMEOUT"

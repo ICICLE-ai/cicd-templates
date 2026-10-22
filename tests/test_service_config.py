@@ -476,6 +476,7 @@ class ServiceConfigTests(unittest.TestCase):
         self.assertEqual(deploy["env"]["POD_NAME"], "${{ steps.config.outputs.pod_name }}")
         self.assertEqual(build["with"]["tags"].strip(), "${{ steps.image.outputs.tag }}")
         self.assertEqual(deploy["env"]["IMAGE"], build["with"]["tags"].strip())
+        self.assertEqual(deploy["env"]["IMAGE_DIGEST"], "${{ steps.build.outputs.digest }}")
 
         # Run the actual workflow shell blocks, recording the deployment CLI
         # arguments in place of making a Tapis request.
@@ -536,9 +537,21 @@ class ServiceConfigTests(unittest.TestCase):
                                             capture_output=True, text=True, timeout=5, check=False)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(json.loads(arguments.read_text()), [
-                        "--pod", pod, "--image", expected_image, "--runtime", runtime,
+                        "--pod", pod, "--image", f"ghcr.io/example-org/{service}@sha256:" + "b" * 64, "--runtime", runtime,
                         "--build-sha", sha, "--health-url", "", "--timeout", "300",
                     ])
+
+    def test_deploy_rejects_missing_or_invalid_digest_before_invoking_python(self):
+        script = workflow_script("Deploy image and verify rollout")
+        for digest in ("", "sha256:short", "sha256:" + "g" * 64, "sha256:" + "b" * 64 + "\n"):
+            with self.subTest(digest=digest):
+                result = subprocess.run(
+                    ["bash", "-eu", "-c", script],
+                    env={**os.environ, "IMAGE_DIGEST": digest},
+                    capture_output=True, text=True, timeout=5,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("deployment was not attempted", result.stderr)
 
 
 if __name__ == "__main__":
