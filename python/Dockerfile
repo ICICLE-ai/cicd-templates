@@ -37,7 +37,7 @@
 # ╭─────────────╮
 # │ Build-Stage │
 # ╰─────────────╯
-FROM debian:trixie-20261005-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS build-stage
+FROM debian:trixie-20261027-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS build-stage
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 /uv /uvx /bin/
 
@@ -90,7 +90,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ╭───────────╮
 # │ Run-Stage │
 # ╰───────────╯
-FROM debian:trixie-20261005-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS run-stage
+FROM debian:trixie-20261027-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS run-stage
 
 # Shared-template provenance is independent of the application's build version.
 ARG TEMPLATE_VERSION="development"
