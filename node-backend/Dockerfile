@@ -37,7 +37,7 @@
 # ╭─────────────╮
 # │ Build-Stage │
 # ╰─────────────╯
-FROM debian:trixie-20261005-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS build-stage
+FROM debian:trixie-20261027-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS build-stage
 
 # curl / xz-utils are needed to fetch and unpack the official Node tarball.
 # Build-stage apt packages are appended from icicle-service.yaml build-apt-packages.
@@ -162,7 +162,7 @@ RUN --mount=type=cache,target=/root/.npm \
 # ╭───────────╮
 # │ Run-Stage │
 # ╰───────────╯
-FROM debian:trixie-20261005-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS run-stage
+FROM debian:trixie-20261027-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS run-stage
 
 # Shared-template provenance is independent of the application's build version.
 ARG TEMPLATE_VERSION="development"
