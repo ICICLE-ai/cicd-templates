@@ -11,7 +11,7 @@ These settings are independent:
 | `service-version` | Application release and published image tag, such as `1.4.2`; deployment uses the build digest. |
 | `runtime-version` | Python or Node interpreter/toolchain version. |
 
-New services use schema 3, which derives the deployment pod name from `service-name` and rejects `pod-name`. Existing schemas 1 and 2 remain supported. See [migration guidance](configuration.md).
+New services use schema 3, which derives the deployment pod name from `service-name` and rejects `pod-name`. Schemas 1 and 2 remain supported only for repositories created before 2026-10-15; CI rejects them for newer repositories. See [migration guidance](configuration.md).
 
 Images record `io.icicle.template.version` and `io.icicle.template.revision`. CI supplies the corresponding `TEMPLATE_VERSION` and `TEMPLATE_REVISION` build arguments; manual builds default to `development` and `unknown`. The published `v1` predates this setup. See [release notes](../CHANGELOG.md).
 

@@ -2,7 +2,7 @@
 
 Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.3.0`**.
 
-New services use schema 3: `service-name` names both the image and deployment pod. Existing schemas 1 and 2 remain supported; see [configuration and migration](configuration.md).
+New services use schema 3: `service-name` names both the image and deployment pod. Schemas 1 and 2 remain supported only for repositories created before 2026-10-15; see [configuration and migration](configuration.md).
 
 Choose a runtime, then follow its short guide:
 
