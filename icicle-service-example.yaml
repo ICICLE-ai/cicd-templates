@@ -5,7 +5,7 @@ schema-version: 3
 # ──────────────────────────────────────────────────────────────────────
 
 # Names both the image and existing deployment pod. Do not add pod-name.
-# Use 4-64 lowercase letters/digits, starting with a letter; no reserved names.
+# Use 3-64 lowercase letters/digits, starting with a letter; no reserved names.
 # The image repository must be permitted by the site's allowlist. CI updates
 # the image, restarts the pod, and verifies health; it does not create the pod.
 # The platform team owns its environment, networking, and resources.

@@ -10,7 +10,7 @@
   ],
   "properties": {
     "schema-version": {"type": "integer", "const": 3},
-    "service-name": {"type": "string", "pattern": "^[a-z][a-z0-9]{3,63}$", "not": {"enum": ["catalog", "snapshots", "volumes", "admin", "catalogs", "snapshot", "volume", "image", "images", "template", "templates", "stack", "stacks", "nodes", "metrics", "secrets"]}, "description": "Image repository name and pod name: 4-64 lowercase letters or digits, starting with a letter; reserved Tapis pod identifiers are not allowed."},
+    "service-name": {"type": "string", "pattern": "^[a-z][a-z0-9]{2,63}$", "not": {"enum": ["catalog", "snapshots", "volumes", "admin", "catalogs", "snapshot", "volume", "image", "images", "template", "templates", "stack", "stacks", "nodes", "metrics", "secrets"]}, "description": "Image repository name and pod name: 3-64 lowercase letters or digits, starting with a letter; reserved Tapis pod identifiers are not allowed."},
     "service-version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
     "project-name": {"type": "string", "pattern": "\\S"},
     "service-type": {"type": "string", "enum": ["ai", "ci", "domain"]},

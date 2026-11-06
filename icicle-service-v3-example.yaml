@@ -2,7 +2,7 @@
 schema-version: 3
 
 # Both the image name and deployment pod ID. No separate pod-name field.
-# Use 4-64 lowercase letters/digits, starting with a letter; no reserved names.
+# Use 3-64 lowercase letters/digits, starting with a letter; no reserved names.
 service-name: myservice
 service-version: 0.1.0
 project-name: myproject

@@ -227,7 +227,7 @@ def deploy(client, *, base_url, pod_name, image, runtime, build_sha,
            override_url="", timeout=300, interval=5, clock=time.monotonic,
            sleep=time.sleep, log=logger.info, should_deploy=lambda: True):
     """Mutate only image; keep all deployment-owned environment/network fields."""
-    if not re.fullmatch(r"[a-z][a-z0-9]{3,63}", pod_name):
+    if not re.fullmatch(r"[a-z][a-z0-9]{2,63}", pod_name):
         raise DeploymentError("Invalid pod-name")
     if runtime not in {"python", "node-backend", "node-frontend"}:
         raise DeploymentError("Unsupported runtime")

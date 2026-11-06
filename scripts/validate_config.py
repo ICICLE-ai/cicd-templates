@@ -7,6 +7,7 @@ import math
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -24,6 +25,10 @@ SCHEMA_PATHS = {
     version: Path(__file__).resolve().parents[1] / f"schema/icicle-service-v{version}.schema.json"
     for version in (1, 2, 3)
 }
+# A repository created at or after a schema's cutoff must use that schema or
+# newer. Add an entry only when publishing a new schema; releases that do not
+# change the schema leave this file alone.
+CUTOFFS_PATH = Path(__file__).resolve().parents[1] / "schema/schema-cutoffs.json"
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 RUNTIME_VERSION = re.compile(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?\Z")
 DEFAULTS = {
@@ -137,7 +142,23 @@ def _check_health_url(value):
         raise ConfigError("health-url must be a full HTTP(S) URL without credentials, query, or fragment")
 
 
-def load_config(path):
+def _parse_created_at(value):
+    try:
+        created = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ConfigError(f"Invalid repository creation timestamp: {value!r}") from error
+    if created.tzinfo is None:
+        raise ConfigError("Repository creation timestamp must include a timezone")
+    return created
+
+
+def _required_schema(created):
+    cutoffs = json.loads(CUTOFFS_PATH.read_text(encoding="utf-8"))
+    return max((int(version) for version, since in cutoffs.items()
+                if created >= _parse_created_at(since)), default=1)
+
+
+def load_config(path, repo_created_at=None):
     path = Path(path)
     logger.info("Validating configuration: %s", path)
     warnings = []
@@ -171,6 +192,13 @@ def load_config(path):
             config["runtime-version"] = spelling
             warnings.append("runtime-version was numeric; quote it as a MAJOR.MINOR string")
 
+    if repo_created_at is not None:
+        created = _parse_created_at(repo_created_at)
+        required = _required_schema(created)
+        if version < required:
+            raise ConfigError(
+                f"schema-version {version} is not allowed for repositories created on "
+                f"{created.date()}; use schema-version {required} or newer")
     logger.debug("Using schema version %s", version)
     schema = json.loads(SCHEMA_PATHS[version].read_text(encoding="utf-8"))
     known = schema["properties"]
@@ -201,11 +229,13 @@ def main(argv=None):
     parser.add_argument("config", nargs="?", default="icicle-service.yaml")
     parser.add_argument("--github-output", type=Path, help="Append validated GitHub Actions step outputs")
     parser.add_argument("--json", action="store_true", help="Print normalized configuration as JSON")
+    parser.add_argument("--repo-created-at", help="Repository creation time (ISO 8601); "
+                        "enforces the minimum schema for repositories created after each cutoff in schema/schema-cutoffs.json")
     add_debug_argument(parser)
     args = parser.parse_args(argv)
     configure_logging(args.debug)
     try:
-        result = load_config(args.config)
+        result = load_config(args.config, args.repo_created_at)
         normalized = json.dumps(result.config, indent=2, allow_nan=False)
         payload = "".join(f"{name}={value}\n" for name, value in result.github_outputs().items())
         # Validate everything before opening the runner output file. Invalid

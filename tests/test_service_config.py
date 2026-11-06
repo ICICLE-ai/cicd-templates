@@ -134,7 +134,7 @@ class ServiceConfigTests(unittest.TestCase):
         output = self.directory / "github-output"
         for runtime, runtime_version in (("python", "3.13"), ("node-backend", "22.11"),
                                          ("node-frontend", "22.11")):
-            for name in ("abcd", "a123", "exampleservice", "a" * 64):
+            for name in ("abc", "abcd", "a123", "exampleservice", "a" * 64):
                 with self.subTest(runtime=runtime, name=name):
                     source = self.write_v3_config({"service-name": name, "runtime-type": runtime,
                                                    "runtime-version": runtime_version})
@@ -160,7 +160,7 @@ class ServiceConfigTests(unittest.TestCase):
 
     def test_v3_rejects_invalid_service_names_before_outputs(self):
         output = self.directory / "github-output"
-        for name in (None, True, 1234, [], {}, "", "a", "abc", "1abc", "a" * 65,
+        for name in (None, True, 1234, [], {}, "", "a", "ab", "1abc", "a" * 65,
                      "Example", "examplePod", "front-end", "front_end", "front.end",
                      "front/end", "front:end", "front end", " front", "front ",
                      "front\tend", "front\nend", "front\n", "front\r", "front$end",
@@ -206,6 +206,25 @@ class ServiceConfigTests(unittest.TestCase):
                 self.write_config({"schema-version": version})
                 with self.assertRaisesRegex(ConfigError, "schema-version.*1, 2, or 3"):
                     load_config(self.path)
+
+    def test_legacy_schemas_blocked_for_repositories_created_after_cutoff(self):
+        for version in (1, 2):
+            self.write_config({"schema-version": version, "service-name": "frontend", "pod-name": "frontend"})
+            with self.subTest(version=version, created="after"):
+                with self.assertRaisesRegex(ConfigError, "use schema-version 3 or newer"):
+                    load_config(self.path, "2026-10-15T15:35:57Z")
+            with self.subTest(version=version, created="before"):
+                load_config(self.path, "2026-10-15T15:35:56Z")
+            with self.subTest(version=version, created="unspecified"):
+                load_config(self.path)
+        self.write_v3_config({})
+        load_config(self.path, "2030-01-01T00:00:00Z")
+        with self.assertRaisesRegex(ConfigError, "creation timestamp"):
+            load_config(self.path, "not-a-date")
+
+    def test_every_new_schema_has_a_cutoff(self):
+        cutoffs = json.loads((ROOT / "schema/schema-cutoffs.json").read_text(encoding="utf-8"))
+        self.assertIn(str(max(SCHEMA_PATHS)), cutoffs)
 
     def test_cli_and_metadata_warnings_report_the_selected_schema(self):
         for version in (1, 2, 3):
