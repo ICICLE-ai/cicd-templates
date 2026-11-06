@@ -1,6 +1,6 @@
 # Quick start
 
-Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.2.1`**.
+Shared builds and deployment for Python services, Node servers, and static frontends. The release pin is **`v2.3.0`**.
 
 New services use schema 3: `service-name` names both the image and deployment pod. Existing schemas 1 and 2 remain supported; see [configuration and migration](configuration.md).
 
@@ -29,7 +29,7 @@ build-apt-packages: []
 runtime-apt-packages: []
 ```
 
-For Node, select `node-backend` or `node-frontend` and a quoted Node version such as `"24.22.0"`. The frontend's Node version is used only during its build. Set `service-name` to your provisioned pod's name: 4–64 lowercase letters/digits, starting with a letter, excluding reserved Tapis names. Do not add `pod-name`.
+For Node, select `node-backend` or `node-frontend` and a quoted Node version such as `"24.22.0"`. The frontend's Node version is used only during its build. Set `service-name` to your provisioned pod's name: 3–64 lowercase letters/digits, starting with a letter, excluding reserved Tapis names. Do not add `pod-name`.
 
 **2. Add the files required by your runtime guide.** Copy its `.dockerignore`. Backends need an `entrypoint.sh`; the frontend receives its startup script from CI. CI supplies the authoritative Dockerfile and Nginx files, so service-local edits to downloaded copies will be replaced.
 
@@ -46,7 +46,7 @@ permissions:
   packages: write
 jobs:
   deploy:
-    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.2.1
+    uses: icicle-ai/cicd-templates/.github/workflows/deploy-service.yaml@v2.3.0
     secrets:
       TAPIS_TOKEN: ${{ secrets.TAPIS_TOKEN }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}

@@ -83,8 +83,14 @@ jobs:
 
       - name: Validate and parse icicle-service.yaml
         id: config
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          # Fail closed: without the creation date, legacy schemas cannot be gated.
+          REPO_CREATED_AT=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .created_at)
           python "$TEMPLATES_DIR/scripts/validate_config.py" icicle-service.yaml \
+            --repo-created-at "$REPO_CREATED_AT" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Set up Buildtime Args

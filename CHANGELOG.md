@@ -1,6 +1,14 @@
 # Release notes
 
-## Unreleased
+## 2.3.0
+
+- Schema 3 pod names may now be 3–64 characters (was 4–64). Schemas 1 and 2 keep 4–64.
+- Block legacy schemas for new repositories. The workflow reads the repository creation date and the validator requires the newest schema whose cutoff in `schema/schema-cutoffs.json` is on or before that date; repositories created on or after 2026-10-15 must use schema 3. Existing repositories are unaffected. Releases that do not change the schema leave the cutoffs alone; add an entry only when publishing a new schema.
+- The validation step now calls the GitHub API with the workflow token (read-only) and fails if the creation date cannot be read.
+
+## 2.2.2
+
+Released on 2026-10-22.
 
 - Deploy the image digest returned by the build while retaining the service-version tag for publication and summaries.
 - Skip the image PUT when the pod already has the exact image reference configured; still restart and verify the new instance and build SHA.
