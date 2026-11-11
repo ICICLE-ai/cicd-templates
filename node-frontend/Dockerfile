@@ -41,7 +41,7 @@
 # ╰─────────────╯
 # Identical Node install to the `node-backend/` template: Node from the official dist
 # tarball onto the same digest-pinned Debian base, verified against SHASUMS.
-FROM debian:trixie-20261005-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS build-stage
+FROM debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS build-stage
 
 ARG BUILD_APT_PACKAGES=""
 RUN set -eux; \
@@ -162,7 +162,7 @@ RUN test -d /app/dist && [ -n "$(ls -A /app/dist)" ] \
 # ╰───────────╯
 # nginx serves the static build. No Node here. Same digest-pinned base as the
 # other ICICLE templates, with nginx installed from Debian.
-FROM debian:trixie-20261005-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS run-stage
+FROM debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS run-stage
 
 # Shared-template provenance is independent of the application's build version.
 ARG TEMPLATE_VERSION="development"
